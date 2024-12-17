@@ -1,0 +1,79 @@
+using G9SignalRSuperNetCore.Client;
+/* ---------------------------------------------------------------
+ *       Auto-generated client helper for hub 'CustomHub'
+ * --------------------------------------------------------------- */
+
+// Interface defining server-side methods callable from the client.
+// Contains methods exposed by the server for client interaction.
+public interface G9ICustomHubMethods
+{
+    /// <summary>
+    /// Information
+    /// </summary>
+    /// <param name="userName">user Name</param>
+    /// <param name="password">Password</param>
+
+    Task Login(string userName, string password);
+    /// <summary>
+    /// Replay
+    /// </summary>
+    /// <param name="message">Okay</param>
+
+    Task Replay(string message);
+
+}
+
+// Interface defining client-side callback methods (listeners).
+// Contains methods that the server can invoke on the client.
+public interface G9ICustomHubListeners
+{
+    /// <summary>
+    /// Method to receive the result for login
+    /// </summary>
+    /// <param name="accepted">Specifies that access is true or not</param>
+
+    Task LoginResult(bool accepted);
+    Task Replay(string message);
+
+}
+
+// Client class for hub 'CustomHub'.
+// Implements 'G9ICustomHubListeners' for handling server-side callbacks
+// and provides methods to interact with the server via 'G9ICustomHubMethods'.
+public class G9CCustomHubClient : G9SignalRSuperNetCoreClient<G9CCustomHubClient, G9ICustomHubMethods, G9ICustomHubListeners>, G9ICustomHubListeners
+{
+    public G9CCustomHubClient(string serverUrl)
+        : base($"{serverUrl}/CustomHubForTestVeryGo")
+    {
+    }
+}
+
+/* ---------------------------------------------------------------
+ *       Auto-generated client helper for hub 'CustomHubWithSession'
+ * --------------------------------------------------------------- */
+
+// Interface defining server-side methods callable from the client.
+// Contains methods exposed by the server for client interaction.
+public interface G9ICustomHubWithSessionMethods
+{
+
+}
+
+// Interface defining client-side callback methods (listeners).
+// Contains methods that the server can invoke on the client.
+public interface G9ICustomHubWithSessionListeners
+{
+    // Unable to locate client interface: CustomHubSession
+
+}
+
+// Client class for hub 'CustomHubWithSession'.
+// Implements 'G9ICustomHubWithSessionListeners' for handling server-side callbacks
+// and provides methods to interact with the server via 'G9ICustomHubWithSessionMethods'.
+public class G9CCustomHubWithSessionClient : G9SignalRSuperNetCoreClient<G9CCustomHubWithSessionClient, G9ICustomHubWithSessionMethods, G9ICustomHubWithSessionListeners>, G9ICustomHubWithSessionListeners
+{
+    public G9CCustomHubWithSessionClient(string serverUrl)
+        : base($"{serverUrl}/CustomHubWithSession")
+    {
+    }
+}

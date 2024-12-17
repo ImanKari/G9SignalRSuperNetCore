@@ -13,9 +13,16 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<!-- Reference the generator project as an analyzer -->
-		<ProjectReference Include="..\G9SignalRSuperNetCore.Server\G9SignalRSuperNetCore.Server.csproj"
-		                  OutputItemType="Analyzer" />
+		<ProjectReference Include="..\G9SignalRSuperNetCore.Server\G9SignalRSuperNetCore.Server.csproj" />
 	</ItemGroup>
+
+	<UsingTask TaskName="G9HubClientGeneratorTask"
+	           AssemblyFile="..\G9SignalRSuperNetCore.Server.ClientResourceGenerator\bin\Debug\netstandard2.0\G9SignalRSuperNetCore.Server.ClientResourceGenerator.dll" />
+
+
+	<Target Name="GenerateClientHelpers" AfterTargets="Build">
+		<G9HubClientGeneratorTask InputDirectory="$(MSBuildProjectDirectory)"
+		                          OutputFile="$(MSBuildProjectDirectory)\GeneratedClientHelpers.txt" />
+	</Target>
 
 </Project>

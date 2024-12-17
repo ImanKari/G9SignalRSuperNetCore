@@ -13,15 +13,18 @@ namespace G9SignalRSuperNetCore.ConsoleClient
     {
         static async Task Main(string[] args)
         {
-            var client = new G9SignalRSuperNetCoreClient<MyInterface>("https://localhost:7159");
+            //var client = new G9SignalRSuperNetCoreClient<MyInterface>("https://localhost:7159");
 
+            //await client.ConnectAsync();
+
+            var client = new G9CCustomHubClient("https://localhost:7159");
             await client.ConnectAsync();
+            await client.Server.Login("Iman", "@ImanKari1990");
 
-            Console.WriteLine("Enter your username:");
-            var user = Console.ReadLine();
 
             while (true)
             {
+                Console.WriteLine("Enter command:");
                 var message = Console.ReadLine();
                 if (message?.ToLower() == "exit")
                     break;
@@ -29,8 +32,11 @@ namespace G9SignalRSuperNetCore.ConsoleClient
                 {
                     //await client.UploadFileAsync("Raspberry SIM7600 4G.mp4");
                 }
+                if (message?.ToLower() == "replay")
+                {
+                    await client.Server.Replay(0.ToString());
+                }
 
-                await client.SendAsync(s => s.MethodA(1));
             }
 
             await client.DisconnectAsync();

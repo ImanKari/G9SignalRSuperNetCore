@@ -1,5 +1,4 @@
 using G9SignalRSuperNetCore.Server;
-using G9SignalRSuperNetCore.Server.Classes.Hubs;
 
 namespace G9SignalRSuperNetCore.WebServer;
 
