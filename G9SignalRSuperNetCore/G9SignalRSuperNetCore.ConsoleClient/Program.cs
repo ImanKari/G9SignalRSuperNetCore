@@ -2,11 +2,18 @@
 
 namespace G9SignalRSuperNetCore.ConsoleClient
 {
+    public interface MyInterface
+    {
+        public void MethodA(int a);
+
+        public void MethodB(int a, int b);
+    }
+
     internal class Program
     {
         static async Task Main(string[] args)
         {
-            var client = new G9SignalRSuperNetCoreClient("https://localhost:7159");
+            var client = new G9SignalRSuperNetCoreClient<MyInterface>("https://localhost:7159");
 
             await client.ConnectAsync();
 
@@ -20,10 +27,10 @@ namespace G9SignalRSuperNetCore.ConsoleClient
                     break;
                 if (message?.ToLower() == "file")
                 {
-                    await client.UploadFileAsync("Raspberry SIM7600 4G.mp4");
+                    //await client.UploadFileAsync("Raspberry SIM7600 4G.mp4");
                 }
 
-                await client.SendMessageAsync(user, message);
+                await client.SendAsync(s => s.MethodA(1));
             }
 
             await client.DisconnectAsync();

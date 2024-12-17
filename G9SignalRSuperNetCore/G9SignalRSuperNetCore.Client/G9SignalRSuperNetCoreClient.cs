@@ -1,55 +1,85 @@
 ﻿using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
+using System.Linq.Expressions;
 
 namespace G9SignalRSuperNetCore.Client
 {
-    public class G9SignalRSuperNetCoreClient
+    public class G9SignalRSuperNetCoreClient<T> where T : class
     {
-        private readonly HubConnection _connection;
+        protected readonly HubConnection Connection;
 
         public G9SignalRSuperNetCoreClient(string serverUrl)
         {
-            _connection = new HubConnectionBuilder()
-                .WithUrl($"{serverUrl}/serverHub", options =>
+            Connection = new HubConnectionBuilder()
+                .WithUrl($"{serverUrl}/hubServer", options =>
                 {
                     //options.Transports = HttpTransportType.WebSockets;
                 })
                 .Build();
-            _connection.ServerTimeout = TimeSpan.FromSeconds(60); // Wait for server response for 60 seconds
+            Connection.ServerTimeout = TimeSpan.FromSeconds(60); // Wait for server response for 60 seconds
         }
 
         public async Task ConnectAsync()
         {
-            _connection.On<string, string>("ReceiveMessage", (user, message) =>
+            Connection.On<string, string>("ReceiveMessage", (user, message) =>
             {
                 Console.WriteLine($"{user}: {message}");
             });
 
-            _connection.On<string, string>("FileUploaded", (fileName, filePath) =>
+            Connection.On<string, string>("FileUploaded", (fileName, filePath) =>
             {
                 Console.WriteLine($"File {fileName} has been uploaded to {filePath}");
             });
 
-            await _connection.StartAsync();
+            await Connection.StartAsync();
             Console.WriteLine("Connected to the server.");
         }
 
-        public async Task SendMessageAsync(string user, string message)
+        public async Task SendAsync(Expression<Func<T, Task>> expression)
         {
-            await _connection.InvokeAsync("SendMessage", user, message);
+            if (expression.Body is MethodCallExpression methodCall)
+            {
+                var methodName = methodCall.Method.Name;
+                var arguments = methodCall.Arguments
+                    .Select(arg => Expression.Lambda(arg).Compile().DynamicInvoke())
+                    .ToArray();
+
+                await Connection.InvokeAsync(methodName, arguments);
+            }
+            else
+            {
+                throw new ArgumentException("Invalid expression, expected a method call.", nameof(expression));
+            }
         }
 
-        public async Task UploadFileAsync(string filePath)
+        public async Task SendAsync(Expression<Action<T>> expression)
         {
-            var fileName = Path.GetFileName(filePath);
-            var fileData = await File.ReadAllBytesAsync(filePath);
+            if (expression.Body is MethodCallExpression methodCall)
+            {
+                var methodName = methodCall.Method.Name;
+                var arguments = methodCall.Arguments
+                    .Select(arg => Expression.Lambda(arg).Compile().DynamicInvoke())
+                    .ToArray();
 
-            await _connection.InvokeAsync("UploadFile", fileName, fileData);
+                await Connection.InvokeAsync(methodName, arguments);
+            }
+            else
+            {
+                throw new ArgumentException("Invalid expression, expected a method call.", nameof(expression));
+            }
         }
+
+        //public async Task UploadFileAsync(string filePath)
+        //{
+        //    var fileName = Path.GetFileName(filePath);
+        //    var fileData = await File.ReadAllBytesAsync(filePath);
+
+        //    await _connection.InvokeAsync("UploadFile", fileName, fileData);
+        //}
 
         public async Task DisconnectAsync()
         {
-            await _connection.StopAsync();
+            await Connection.StopAsync();
             Console.WriteLine("Disconnected from the server.");
         }
     }

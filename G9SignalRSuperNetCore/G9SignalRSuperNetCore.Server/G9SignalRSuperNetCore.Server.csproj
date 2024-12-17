@@ -7,17 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Clasess\NewFolder\**" />
-    <EmbeddedResource Remove="Clasess\NewFolder\**" />
-    <None Remove="Clasess\NewFolder\**" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.1.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Clasess\Extensions\" />
-  </ItemGroup>
+	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
 
 </Project>
