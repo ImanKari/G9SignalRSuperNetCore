@@ -8,7 +8,7 @@
 ///     Interface defining server-side methods callable from the client.
 ///     Contains methods exposed by the server for client interaction.
 /// </summary>
-public interface G9ICustomHubMethods
+public interface G9ICustomHubMethodsWithJWTAuth
 {
     /// <summary>
     ///     Information
@@ -28,7 +28,7 @@ public interface G9ICustomHubMethods
 ///     Interface defining client-side callback methods (listeners).
 ///     Contains methods that the server can invoke on the client.
 /// </summary>
-public interface G9ICustomHubListeners
+public interface G9ICustomHubListenersWithJWTAuth
 {
     /// <summary>
     ///     Method to receive the result for login
@@ -55,11 +55,11 @@ public interface G9ICustomHubListeners
 /// }
 /// </code>
 /// </summary>
-public class G9CCustomHubClient :
-    G9SignalRSuperNetCoreClient<G9CCustomHubClient, G9ICustomHubMethods, G9ICustomHubListeners>, G9ICustomHubListeners
+public class G9CCustomHubClientWithJWTAuth :
+    G9SignalRSuperNetCoreClientWithJWTAuth<G9CCustomHubClientWithJWTAuth, G9ICustomHubMethodsWithJWTAuth, G9ICustomHubListenersWithJWTAuth>, G9ICustomHubListenersWithJWTAuth
 {
-    public G9CCustomHubClient(string serverUrl)
-        : base($"{serverUrl}/ApplicationHub")
+    public G9CCustomHubClientWithJWTAuth(string serverUrl, string? jwToken = null)
+        : base($"{serverUrl}/AuthHub", $"{serverUrl}/SecureHub", jwToken)
     {
     }
 
@@ -69,10 +69,9 @@ public class G9CCustomHubClient :
         return Task.CompletedTask;
     }
 
-    public async Task Replay(string message)
+    public Task Replay(string message)
     {
-        Console.WriteLine(message);
-        var value = int.Parse(message) + 1;
-        await Server.Replay(value.ToString());
+        Console.WriteLine($"Received Message: {message}");
+        return Task.CompletedTask;
     }
 }

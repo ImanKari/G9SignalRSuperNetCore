@@ -3,8 +3,10 @@ using G9SignalRSuperNetCore.Client;
  *       Auto-generated client helper for hub 'CustomHub'
  * --------------------------------------------------------------- */
 
-// Interface defining server-side methods callable from the client.
-// Contains methods exposed by the server for client interaction.
+/// <summary>
+/// Interface defining server-side methods callable from the client.
+/// Contains methods exposed by the server for client interaction.
+/// </summary>
 public interface G9ICustomHubMethods
 {
     /// <summary>
@@ -23,8 +25,10 @@ public interface G9ICustomHubMethods
 
 }
 
-// Interface defining client-side callback methods (listeners).
-// Contains methods that the server can invoke on the client.
+/// <summary>
+/// Interface defining client-side callback methods (listeners).
+/// Contains methods that the server can invoke on the client.
+/// </summary>
 public interface G9ICustomHubListeners
 {
     /// <summary>
@@ -37,13 +41,149 @@ public interface G9ICustomHubListeners
 
 }
 
-// Client class for hub 'CustomHub'.
-// Implements 'G9ICustomHubListeners' for handling server-side callbacks
-// and provides methods to interact with the server via 'G9ICustomHubMethods'.
+/// <summary>
+/// Client class for interacting with the SignalR hub 'CustomHub'.
+/// Implements 'G9ICustomHubListeners' for handling server-side callbacks and provides methods to interact with the server via 'G9ICustomHubMethods' .
+/// This class handles server-side method calls and processes callbacks from the server.
+/// <para/>
+/// Sample:
+/// <code>
+/// public Task YourClientListenerMethods(ParamType YourParam, ...){
+///     ...
+///     // Calls server method if needed:
+///     Server.YourServerMethod(ParamType YourParam, .....)
+///     ...
+/// }
+/// </code>
+/// </summary>
 public class G9CCustomHubClient : G9SignalRSuperNetCoreClient<G9CCustomHubClient, G9ICustomHubMethods, G9ICustomHubListeners>, G9ICustomHubListeners
 {
     public G9CCustomHubClient(string serverUrl)
-        : base($"{serverUrl}/CustomHubForTestVeryGo")
+        : base($"{serverUrl}/ApplicationHub")
+    {
+    }
+}
+
+/* ---------------------------------------------------------------
+ *       Auto-generated client helper for hub 'CustomHubWithJWTAuth'
+ * --------------------------------------------------------------- */
+
+/// <summary>
+/// Interface defining server-side methods callable from the client.
+/// Contains methods exposed by the server for client interaction.
+/// </summary>
+public interface G9ICustomHubWithJWTAuthMethods
+{
+    /// <summary>
+    /// Information
+    /// </summary>
+    /// <param name="userName">user Name</param>
+    /// <param name="password">Password</param>
+
+    Task Login(string userName, string password);
+    /// <summary>
+    /// Replay
+    /// </summary>
+    /// <param name="message">Okay</param>
+
+    Task Replay(string message);
+
+}
+
+/// <summary>
+/// Interface defining client-side callback methods (listeners).
+/// Contains methods that the server can invoke on the client.
+/// </summary>
+public interface G9ICustomHubWithJWTAuthListeners
+{
+    /// <summary>
+    /// Method to receive the result for login
+    /// </summary>
+    /// <param name="accepted">Specifies that access is true or not</param>
+
+    Task LoginResult(bool accepted);
+    Task Replay(string message);
+
+}
+
+/// <summary>
+/// Client class for interacting with the SignalR hub 'CustomHubWithJWTAuth'.
+/// Implements 'G9ICustomHubWithJWTAuthListeners' for handling server-side callbacks and provides methods to interact with the server via 'G9ICustomHubWithJWTAuthMethods' .
+/// This class handles server-side method calls and processes callbacks from the server.
+/// <para/>
+/// Sample:
+/// <code>
+/// public Task YourClientListenerMethods(ParamType YourParam, ...){
+///     ...
+///     // Calls server method if needed:
+///     Server.YourServerMethod(ParamType YourParam, .....)
+///     ...
+/// }
+/// </code>
+/// </summary>
+public class G9CCustomHubWithJWTAuthClient : G9SignalRSuperNetCoreClient<G9CCustomHubWithJWTAuthClient, G9ICustomHubWithJWTAuthMethods, G9ICustomHubWithJWTAuthListeners>, G9ICustomHubWithJWTAuthListeners
+{
+    public G9CCustomHubWithJWTAuthClient(string serverUrl)
+        : base($"{serverUrl}/SecureHub")
+    {
+    }
+}
+
+/* ---------------------------------------------------------------
+ *       Auto-generated client helper for hub 'CustomHubWithJWTAuthAndSession'
+ * --------------------------------------------------------------- */
+
+/// <summary>
+/// Interface defining server-side methods callable from the client.
+/// Contains methods exposed by the server for client interaction.
+/// </summary>
+public interface G9ICustomHubWithJWTAuthAndSessionMethods
+{
+    /// <summary>
+    /// Information
+    /// </summary>
+    /// <param name="userName">user Name</param>
+    /// <param name="password">Password</param>
+
+    Task Login(string userName, string password);
+    /// <summary>
+    /// Replay
+    /// </summary>
+    /// <param name="message">Okay</param>
+
+    Task Replay(string message);
+
+}
+
+/// <summary>
+/// Interface defining client-side callback methods (listeners).
+/// Contains methods that the server can invoke on the client.
+/// </summary>
+public interface G9ICustomHubWithJWTAuthAndSessionListeners
+{
+    // Unable to locate client interface: CustomHubSession
+
+}
+
+/// <summary>
+/// Client class for interacting with the SignalR hub 'CustomHubWithJWTAuthAndSession'.
+/// Implements 'G9ICustomHubWithJWTAuthAndSessionListeners' for handling server-side callbacks and provides methods to interact with the server via 'G9ICustomHubWithJWTAuthAndSessionMethods' .
+/// This class handles server-side method calls and processes callbacks from the server.
+/// <para/>
+/// Sample:
+/// <code>
+/// public Task YourClientListenerMethods(ParamType YourParam, ...){
+///     ...
+///     // Calls server method if needed:
+///     Server.YourServerMethod(ParamType YourParam, .....)
+///     ...
+/// }
+/// </code>
+/// </summary>
+public class G9CCustomHubWithJWTAuthAndSessionClient : G9SignalRSuperNetCoreClient<G9CCustomHubWithJWTAuthAndSessionClient, G9ICustomHubWithJWTAuthAndSessionMethods, G9ICustomHubWithJWTAuthAndSessionListeners>, G9ICustomHubWithJWTAuthAndSessionListeners
+{
+    public G9CCustomHubWithJWTAuthAndSessionClient(string serverUrl)
+        : base($"{serverUrl}/SecureHub")
     {
     }
 }
@@ -52,24 +192,40 @@ public class G9CCustomHubClient : G9SignalRSuperNetCoreClient<G9CCustomHubClient
  *       Auto-generated client helper for hub 'CustomHubWithSession'
  * --------------------------------------------------------------- */
 
-// Interface defining server-side methods callable from the client.
-// Contains methods exposed by the server for client interaction.
+/// <summary>
+/// Interface defining server-side methods callable from the client.
+/// Contains methods exposed by the server for client interaction.
+/// </summary>
 public interface G9ICustomHubWithSessionMethods
 {
 
 }
 
-// Interface defining client-side callback methods (listeners).
-// Contains methods that the server can invoke on the client.
+/// <summary>
+/// Interface defining client-side callback methods (listeners).
+/// Contains methods that the server can invoke on the client.
+/// </summary>
 public interface G9ICustomHubWithSessionListeners
 {
     // Unable to locate client interface: CustomHubSession
 
 }
 
-// Client class for hub 'CustomHubWithSession'.
-// Implements 'G9ICustomHubWithSessionListeners' for handling server-side callbacks
-// and provides methods to interact with the server via 'G9ICustomHubWithSessionMethods'.
+/// <summary>
+/// Client class for interacting with the SignalR hub 'CustomHubWithSession'.
+/// Implements 'G9ICustomHubWithSessionListeners' for handling server-side callbacks and provides methods to interact with the server via 'G9ICustomHubWithSessionMethods' .
+/// This class handles server-side method calls and processes callbacks from the server.
+/// <para/>
+/// Sample:
+/// <code>
+/// public Task YourClientListenerMethods(ParamType YourParam, ...){
+///     ...
+///     // Calls server method if needed:
+///     Server.YourServerMethod(ParamType YourParam, .....)
+///     ...
+/// }
+/// </code>
+/// </summary>
 public class G9CCustomHubWithSessionClient : G9SignalRSuperNetCoreClient<G9CCustomHubWithSessionClient, G9ICustomHubWithSessionMethods, G9ICustomHubWithSessionListeners>, G9ICustomHubWithSessionListeners
 {
     public G9CCustomHubWithSessionClient(string serverUrl)

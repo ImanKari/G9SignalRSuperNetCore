@@ -80,6 +80,15 @@ public class G9HubClientGeneratorTask : Task
             Log.LogErrorFromException(ex);
             return false;
         }
+        finally
+        {
+            // Force garbage collection to help release file locks
+            for (int i = 0; i < GC.MaxGeneration; i++)
+            {
+                GC.Collect(i, GCCollectionMode.Forced);
+                GC.WaitForPendingFinalizers();
+            }
+        }
     }
 
     /// <summary>
@@ -143,23 +152,39 @@ public class G9HubClientGeneratorTask : Task
  *       Auto-generated client helper for hub '{className}'
  * --------------------------------------------------------------- */
 
-// Interface defining server-side methods callable from the client.
-// Contains methods exposed by the server for client interaction.
+/// <summary>
+/// Interface defining server-side methods callable from the client.
+/// Contains methods exposed by the server for client interaction.
+/// </summary>
 public interface {methodsInterface}
 {{
 {methodsDefinition}
 }}
 
-// Interface defining client-side callback methods (listeners).
-// Contains methods that the server can invoke on the client.
+/// <summary>
+/// Interface defining client-side callback methods (listeners).
+/// Contains methods that the server can invoke on the client.
+/// </summary>
 public interface {listenersInterface}
 {{
 {listenersDefinition}
 }}
 
-// Client class for hub '{className}'.
-// Implements '{listenersInterface}' for handling server-side callbacks
-// and provides methods to interact with the server via '{methodsInterface}'.
+/// <summary>
+/// Client class for interacting with the SignalR hub '{className}'.
+/// Implements '{listenersInterface}' for handling server-side callbacks and provides methods to interact with the server via '{methodsInterface}' .
+/// This class handles server-side method calls and processes callbacks from the server.
+/// <para/>
+/// Sample:
+/// <code>
+/// public Task YourClientListenerMethods(ParamType YourParam, ...){{
+///     ...
+///     // Calls server method if needed:
+///     Server.YourServerMethod(ParamType YourParam, .....)
+///     ...
+/// }}
+/// </code>
+/// </summary>
 public class {clientClass} : G9SignalRSuperNetCoreClient<{clientClass}, {methodsInterface}, {listenersInterface}>, {listenersInterface}
 {{
     public {clientClass}(string serverUrl)

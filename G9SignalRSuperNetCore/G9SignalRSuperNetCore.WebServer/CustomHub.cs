@@ -7,7 +7,7 @@ public class CustomHub : G9AHubBase<CustomHub, CustomClientInterface>
 {
     public override string RoutePattern()
     {
-        return "/CustomHubForTestVeryGo";
+        return "/ApplicationHub";
     }
 
     /// <summary>
@@ -19,6 +19,7 @@ public class CustomHub : G9AHubBase<CustomHub, CustomClientInterface>
     public async Task Login(string userName, string password)
     {
         await Clients.Caller.LoginResult(true);
+        
     }
 
     /// <summary>
@@ -28,6 +29,7 @@ public class CustomHub : G9AHubBase<CustomHub, CustomClientInterface>
     [G9AttrMapMethodForClient]
     public async Task Replay(string message)
     {
+        Console.WriteLine(Context.ConnectionId);
         await Clients.Caller.Replay(message);
     }
 }

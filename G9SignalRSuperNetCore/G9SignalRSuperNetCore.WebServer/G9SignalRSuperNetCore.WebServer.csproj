@@ -16,9 +16,15 @@
 		<ProjectReference Include="..\G9SignalRSuperNetCore.Server\G9SignalRSuperNetCore.Server.csproj" />
 	</ItemGroup>
 
-	<UsingTask TaskName="G9HubClientGeneratorTask"
-	           AssemblyFile="..\G9SignalRSuperNetCore.Server.ClientResourceGenerator\bin\Debug\netstandard2.0\G9SignalRSuperNetCore.Server.ClientResourceGenerator.dll" />
+	<ItemGroup>
+		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer">
+			<Version>9.0.0</Version>
+		</PackageReference>
+	</ItemGroup>
 
+	<UsingTask TaskName="G9HubClientGeneratorTask"
+	           AssemblyFile="..\G9SignalRSuperNetCore.Server.ClientResourceGenerator\bin\Debug\netstandard2.0\G9SignalRSuperNetCore.Server.ClientResourceGenerator.dll"
+	           TaskFactory="TaskHostFactory" />
 
 	<Target Name="GenerateClientHelpers" AfterTargets="Build">
 		<G9HubClientGeneratorTask InputDirectory="$(MSBuildProjectDirectory)"

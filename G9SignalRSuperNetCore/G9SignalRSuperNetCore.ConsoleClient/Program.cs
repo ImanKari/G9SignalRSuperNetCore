@@ -1,45 +1,105 @@
-﻿using G9SignalRSuperNetCore.Client;
+﻿namespace G9SignalRSuperNetCore.ConsoleClient;
 
-namespace G9SignalRSuperNetCore.ConsoleClient
+public interface MyInterface
 {
-    public interface MyInterface
-    {
-        public void MethodA(int a);
+    public void MethodA(int a);
 
-        public void MethodB(int a, int b);
-    }
+    public void MethodB(int a, int b);
+}
 
-    internal class Program
+internal class Program
+{
+    private static async Task Main(string[] args)
     {
-        static async Task Main(string[] args)
+        //var client = new G9SignalRSuperNetCoreClient<MyInterface>("https://localhost:7159");
+
+        //await client.ConnectAsync();
+
+        //var client = new G9CCustomHubClient("https://localhost:7159");
+        //await client.ConnectAsync();
+        //await client.Server.Login("Iman", "@ImanKari1990");
+
+
+        //while (true)
+        //{
+        //    Console.WriteLine("Enter command:");
+        //    var message = Console.ReadLine();
+        //    if (message?.ToLower() == "exit")
+        //        break;
+        //    if (message?.ToLower() == "file")
+        //    {
+        //        //await client.UploadFileAsync("Raspberry SIM7600 4G.mp4");
+        //    }
+        //    if (message?.ToLower() == "replay")
+        //    {
+        //        await client.Server.Replay(0.ToString());
+        //    }
+
+        //}
+
+
+        var token =
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJhZG1pbiIsInN1YiI6Ik1ldGkiLCJqdGkiOiIyMTg2ZjYxNC0yM2I0LTQ0NjEtYmIxNC1lNDVmNjFmZDEwZTIiLCJleHAiOjE3MzQ5MTQ2NjAsImlzcyI6Ikc5VE0iLCJhdWQiOiJHOVRNIn0.zKHP8UBqdr6-dGWRp4LsHiYefRzZi6e4dxO9GPDVOtE";
+
+        var client = new G9CCustomHubClientWithJWTAuth("https://localhost:7159");
+        
+
+        var hasResult = false;
+        var isAccepted = false;
+        string authReason = null;
+        //await client.Authorize(
+        //    "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$",
+        //    (accept, reason, jwToken) =>
+        //    {
+        //        isAccepted = accept;
+        //        authReason = reason;
+        //        hasResult = true;
+        //        return Task.CompletedTask;
+        //    });
+
+
+        while (!hasResult && string.IsNullOrEmpty(token))
         {
-            //var client = new G9SignalRSuperNetCoreClient<MyInterface>("https://localhost:7159");
-
-            //await client.ConnectAsync();
-
-            var client = new G9CCustomHubClient("https://localhost:7159");
-            await client.ConnectAsync();
-            await client.Server.Login("Iman", "@ImanKari1990");
-
-
-            while (true)
+            Console.WriteLine("Wait for auth result.");
+            Task.Delay(369);
+            if (hasResult)
             {
-                Console.WriteLine("Enter command:");
-                var message = Console.ReadLine();
-                if (message?.ToLower() == "exit")
+                if (isAccepted)
+                {
+                    Console.WriteLine("Auth is accepted.");
                     break;
-                if (message?.ToLower() == "file")
-                {
-                    //await client.UploadFileAsync("Raspberry SIM7600 4G.mp4");
-                }
-                if (message?.ToLower() == "replay")
-                {
-                    await client.Server.Replay(0.ToString());
                 }
 
+                Console.WriteLine($"Fail auth, reason: {authReason}");
+                _ = Console.ReadLine();
+                return;
+            }
+        }
+
+        await client.ConnectAsync(token);
+        await client.Server.Login("Iman", "@ImanKari1990");
+
+        client.AssignListenerEvent(
+            s => s.Replay, (string param) =>
+            {
+                Console.WriteLine(param);
+                return Task.CompletedTask;
+            });
+
+        while (true)
+        {
+            Console.WriteLine("Enter command or message:");
+            var message = Console.ReadLine();
+            if (message?.ToLower() == "exit")
+                break;
+            if (message?.ToLower() == "file")
+            {
+                //await client.UploadFileAsync("Raspberry SIM7600 4G.mp4");
             }
 
-            await client.DisconnectAsync();
+            await client.Server.Replay(message);
         }
+
+        await client.DisconnectAsync();
     }
 }

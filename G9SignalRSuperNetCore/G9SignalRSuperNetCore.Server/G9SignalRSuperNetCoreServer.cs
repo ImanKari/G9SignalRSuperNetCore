@@ -1,5 +1,7 @@
 ﻿using System.Security.Claims;
 using G9SignalRSuperNetCore.Server.Classes.Abstracts;
+using G9SignalRSuperNetCore.Server.Classes.Hubs;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.SignalR;
@@ -41,16 +43,59 @@ public static class G9SignalRSuperNetCoreServer
         // Configure custom UserIdProvider
         services.AddSingleton<IUserIdProvider, G9CUserIdProvider>(_ => new G9CUserIdProvider(userIdentifier));
 
-        // Add and configure SignalR options
-        services.AddSignalR(option =>
+        if (targetClass is G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface> withJwtAuth)
         {
-            option.MaximumReceiveMessageSize = 200 * 1024 * 1024; // Set maximum message size to 200MB
-            option.KeepAliveInterval = TimeSpan.FromSeconds(10); // Ping clients every 10 seconds
-            option.ClientTimeoutInterval = TimeSpan.FromSeconds(60); // Set client timeout to 60 seconds
+            var auth = withJwtAuth.GetAuthorizeTokenValidationForHub();
+            var hubPath = withJwtAuth.RoutePattern();
 
-            // Allow the target class to customize SignalR options
-            targetClass.ConfigureHubOption(option);
-        });
+            services.AddAuthentication("Bearer")
+                .AddJwtBearer("Bearer", options =>
+                {
+                    options.TokenValidationParameters = auth;
+
+                    // Allow token from query string (for SignalR WebSocket connections)
+                    options.Events = new JwtBearerEvents
+                    {
+                        OnMessageReceived = context =>
+                        {
+                            var accessToken = context.Request.Query["access_token"];
+
+                            // If the request is for the hub endpoint, extract token
+                            var path = context.HttpContext.Request.Path;
+                            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments(hubPath))
+                                context.Token = accessToken;
+                            return Task.CompletedTask;
+                        }
+                    };
+                });
+
+            services.AddAuthorization();
+
+
+            // Add and configure SignalR options
+            services.AddSignalR(option =>
+            {
+                //option.MaximumReceiveMessageSize = 200 * 1024 * 1024; // Set maximum message size to 200MB
+                option.KeepAliveInterval = TimeSpan.FromSeconds(10); // Ping clients every 10 seconds
+                option.ClientTimeoutInterval = TimeSpan.FromSeconds(60); // Set client timeout to 60 seconds
+
+                // Allow the target class to customize SignalR options
+                targetClass.ConfigureHubOption(option);
+            });
+        }
+        else
+        {
+            // Add and configure SignalR options
+            services.AddSignalR(option =>
+            {
+                //option.MaximumReceiveMessageSize = 200 * 1024 * 1024; // Set maximum message size to 200MB
+                option.KeepAliveInterval = TimeSpan.FromSeconds(10); // Ping clients every 10 seconds
+                option.ClientTimeoutInterval = TimeSpan.FromSeconds(60); // Set client timeout to 60 seconds
+
+                // Allow the target class to customize SignalR options
+                targetClass.ConfigureHubOption(option);
+            });
+        }
     }
 
     /// <summary>
@@ -78,8 +123,27 @@ public static class G9SignalRSuperNetCoreServer
     {
         var targetClass = new TTargetClass();
 
-        // Map the Hub to its defined route and apply configurations
-        app.MapHub<TTargetClass>(targetClass.RoutePattern(), targetClass.ConfigureHub);
+
+        if (targetClass is G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface> withJwtAuth)
+        {
+            // Map the Hub to its defined route and apply configurations
+            var jwtRoutePattern = withJwtAuth.AuthAndGetJWTRoutePattern();
+            if (!G9GetJwtHub._validateUserAndGenerateJWTokenPerRoute.ContainsKey(jwtRoutePattern))
+                _ = G9GetJwtHub._validateUserAndGenerateJWTokenPerRoute.TryAdd(jwtRoutePattern,
+                    withJwtAuth.ValidateUserAndGenerateJWToken);
+
+            app.MapHub<G9GetJwtHub>(jwtRoutePattern, withJwtAuth.ConfigureHubForJWTRoute);
+
+
+            // Map the Hub to its defined route and apply configurations
+            app.MapHub<TTargetClass>(withJwtAuth.RoutePattern(), withJwtAuth.ConfigureHub).RequireAuthorization();
+
+        }
+        else
+        {
+            // Map the Hub to its defined route and apply configurations
+            app.MapHub<TTargetClass>(targetClass.RoutePattern(), targetClass.ConfigureHub);
+        }
     }
 
     /// <summary>

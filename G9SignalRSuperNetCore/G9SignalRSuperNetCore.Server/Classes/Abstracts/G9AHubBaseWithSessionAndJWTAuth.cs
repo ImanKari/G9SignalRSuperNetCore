@@ -8,7 +8,7 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 /// </summary>
 /// <typeparam name="TTargetClass">
 ///     The derived hub class inheriting from
-///     <see cref="G9AHubBaseWithSession{TTargetClass,TSession,TClientSideMethodsInterface}" />.
+///     <see cref="G9AHubBaseWithSessionAndJWTAuth{TTargetClass,TSession,TClientSideMethodsInterface}" />.
 /// </typeparam>
 /// <typeparam name="TSession">
 ///     The session class derived from <see cref="G9ASession" /> that stores user session details.
@@ -16,9 +16,9 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 /// <typeparam name="TClientSideMethodsInterface">
 ///     An interface that defines client-side methods which can be called from the server.
 /// </typeparam>
-public abstract class G9AHubBaseWithSession<TTargetClass, TSession, TClientSideMethodsInterface>
-    : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
-    where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>, new()
+public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TSession, TClientSideMethodsInterface>
+    : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
+    where TTargetClass : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>, new()
     where TClientSideMethodsInterface : class
     where TSession : G9ASession, new()
 {
