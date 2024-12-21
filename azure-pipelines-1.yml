@@ -72,9 +72,10 @@ steps:
           git config --global --list
 
           Write-StepHeader "Repository URLs"
-          $sourceURL = "https://$(System.AccessToken)@dev.azure.com/$(Build.Repository.Uri)/_git/$repoName"
-          $destURL = "https://$(Github.PAT)@github.com/ImanKari/$repoName.git"
-
+          # Correct the source URL construction
+          $sourceURL = "https://$(System.AccessToken)@$(Build.Repository.Uri)"
+          $destURL = "https://$(Github.PAT)@github.com/ImanKari/$repoName.git"  
+          # Mask sensitive parts for output
           Write-Host "Constructed Source URL: $($sourceURL -replace 'https://.*@', 'https://[MASKED]@')"
           Write-Host "Constructed Destination URL: $($destURL -replace 'https://.*@', 'https://[MASKED]@')"
 
