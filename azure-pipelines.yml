@@ -14,8 +14,8 @@ parameters:
   - name: nugetPackages
     type: object
     default:
-      - 'G9SignalRSuperNetCore.Client/bin/Release/*.nupkg'
-      - 'G9SignalRSuperNetCore.Server/bin/Release/*.nupkg'
+      - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Client/bin/Release/*.nupkg'
+      - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Server/bin/Release/*.nupkg'
   - name: repositoryName
     type: string
     default: 'G9SignalRSuperNetCore' # Default to the same as the project name
@@ -72,15 +72,25 @@ steps:
       platform: '$(buildPlatform)'
       configuration: '$(buildConfiguration)'
 
+# NuGet packages list
+- task: CmdLine@2
+  displayName: "List NuGet Packages to Publish"
+  inputs:
+    script: |
+      echo Publishing the following NuGet packages:
+      for %%G in (%{{ parameters.nugetPackages }}%) do (
+        echo $(Pipeline.Workspace)/%%G
+      )
+
 # Publish NuGet packages
 - ${{ each packagePath in parameters.nugetPackages }}:
   - task: DotNetCoreCLI@2
-    displayName: "Publish NuGet Package - $(packagePath)"
+    displayName: "Publish NuGet Package - ${{ packagePath }}"
     inputs:
       command: custom
       custom: nuget
       arguments: >
-        push $(Pipeline.Workspace)/$(packagePath)
+        push $(Pipeline.Workspace)/${{ packagePath }}
         -s https://api.nuget.org/v3/index.json
         -k $(NuGetApiKey) 
         --skip-duplicate
