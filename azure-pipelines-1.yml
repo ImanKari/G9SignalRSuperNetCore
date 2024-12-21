@@ -25,12 +25,155 @@ variables:
   buildConfiguration: 'Release'
 
 steps:
-- task: Bash@3
-  displayName: "Validate NuGet Package Paths"
+- task: PowerShell@2
+  displayName: "Sync Azure DevOps repo with GitHub repo"
   inputs:
     targetType: 'inline'
     script: |
-      echo "NuGet Package Paths:"
-      for package in "${{ join(',', parameters.nugetPackages) }}"; do
-        echo "$package"
-      done
+      function Write-SectionHeader {
+          param([string]$title)
+          Write-Host "`n===================================================="
+          Write-Host $title
+          Write-Host "====================================================`n"
+      }
+
+      function Write-StepHeader {
+          param([string]$step)
+          Write-Host "`n-> $step"
+          Write-Host "----------------------------------------------------"
+      }
+
+      try {
+          Write-SectionHeader "Starting Repository Sync Process"
+
+          Write-StepHeader "Environment Information"
+          Write-Host "PowerShell Version: $($PSVersionTable.PSVersion)"
+          Write-Host "Current Location: $(Get-Location)"
+          Write-Host "Current User: $env:USERNAME"
+          Write-Host "Build Directory: $(Build.SourcesDirectory)"
+          
+          Write-StepHeader "Repository Configuration"
+          $repoName = "${{ parameters.repositoryName }}"
+          $stageDir = "$(Build.SourcesDirectory)"
+          $githubDir = "$stageDir/gitHub"
+          $destination = "$githubDir/$repoName.git"
+
+          Write-Host "Repository Name: $repoName"
+          Write-Host "Stage Directory: $stageDir"
+          Write-Host "GitHub Directory: $githubDir"
+          Write-Host "Destination Path: $destination"
+
+          Write-StepHeader "Git Configuration"
+          Write-Host "Configuring git credentials..."
+          git config --global --list
+          git config --global user.email "azure-pipeline@example.com"
+          git config --global user.name "Azure Pipeline"
+          Write-Host "Updated git config:"
+          git config --global --list
+
+          Write-StepHeader "Repository URLs"
+          $sourceURL = "https://$(System.AccessToken)@dev.azure.com/$(System.TeamFoundationCollectionUri)/_git/$repoName"
+          $destURL = "https://$(Github.PAT)@github.com/ImanKari/$repoName.git"
+          Write-Host "Source URL: [MASKED]dev.azure.com/.../$repoName"
+          Write-Host "Destination URL: [MASKED]github.com/ImanKari/$repoName.git"
+
+          Write-StepHeader "Directory Cleanup"
+          if (Test-Path -Path $githubDir) {
+              Write-Host "Existing GitHub directory found, removing..."
+              Remove-Item -Path $githubDir -Recurse -Force
+              Write-Host "Directory removed successfully"
+          } else {
+              Write-Host "No existing GitHub directory found"
+          }
+
+          Write-StepHeader "Creating Working Directory"
+          Write-Host "Creating new directory at: $githubDir"
+          New-Item -ItemType Directory -Path $githubDir -Force | Out-Null
+          if (Test-Path -Path $githubDir) {
+              Write-Host "Directory created successfully"
+          } else {
+              throw "Failed to create directory"
+          }
+
+          Write-Host "Changing to new directory"
+          Set-Location $githubDir
+          Write-Host "Current location: $(Get-Location)"
+
+          Write-StepHeader "Cloning Repository"
+          Write-Host "Cloning from Azure DevOps..."
+          $cloneOutput = git clone --mirror $sourceURL 2>&1
+          Write-Host "Clone Output:"
+          Write-Host $cloneOutput
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "##vso[task.logissue type=error]Git clone failed with exit code: $LASTEXITCODE"
+              Write-Host "Clone output: $cloneOutput"
+              throw "Git clone operation failed"
+          }
+          Write-Host "Clone completed successfully"
+
+          Write-StepHeader "Changing to Repository Directory"
+          Write-Host "Attempting to change to: $destination"
+          if (Test-Path $destination) {
+              Set-Location $destination
+              Write-Host "Successfully changed to repository directory"
+              Write-Host "Current location: $(Get-Location)"
+          } else {
+              Write-Host "Available directories in $githubDir:"
+              Get-ChildItem -Path $githubDir -Directory | ForEach-Object {
+                  Write-Host " - $($_.FullName)"
+              }
+              throw "Destination directory not found: $destination"
+          }
+
+          Write-StepHeader "Configuring Remotes"
+          Write-Host "Current remotes:"
+          git remote -v
+          Write-Host "Adding GitHub remote..."
+          $remoteOutput = git remote add --mirror=fetch secondary $destURL 2>&1
+          Write-Host "Remote add output: $remoteOutput"
+          Write-Host "Updated remotes:"
+          git remote -v
+
+          Write-StepHeader "Fetching from Origin"
+          Write-Host "Fetching updates..."
+          $fetchOutput = git fetch origin --verbose 2>&1
+          Write-Host "Fetch output:"
+          Write-Host $fetchOutput
+
+          Write-StepHeader "Pushing to GitHub"
+          Write-Host "Pushing all branches..."
+          $pushOutput = git push secondary --all --verbose 2>&1
+          Write-Host "Push output (branches):"
+          Write-Host $pushOutput
+
+          Write-Host "Pushing tags..."
+          $pushTagsOutput = git push secondary --tags --verbose 2>&1
+          Write-Host "Push output (tags):"
+          Write-Host $pushTagsOutput
+
+          Write-SectionHeader "Cleanup Operations"
+          Write-Host "Changing back to stage directory: $stageDir"
+          Set-Location $stageDir
+          
+          if (Test-Path -Path $githubDir) {
+              Write-Host "Removing working directory..."
+              Remove-Item -Path $githubDir -Recurse -Force
+              if (-not (Test-Path -Path $githubDir)) {
+                  Write-Host "Cleanup completed successfully"
+              } else {
+                  Write-Host "##vso[task.logissue type=warning]Failed to remove working directory"
+              }
+          }
+
+          Write-SectionHeader "Sync Process Completed Successfully"
+
+      } catch {
+          Write-SectionHeader "Error Occurred"
+          Write-Host "##vso[task.logissue type=error]Error details: $($_.Exception.Message)"
+          Write-Host "Stack trace: $($_.ScriptStackTrace)"
+          Write-Host "Current location: $(Get-Location)"
+          Write-Host "Directory contents:"
+          Get-ChildItem -Path . -Force | Format-Table Name, LastWriteTime, Length
+          throw $_.Exception.Message
+      }
+    
