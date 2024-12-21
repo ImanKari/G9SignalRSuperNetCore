@@ -1,0 +1,102 @@
+trigger:
+- master
+
+pool:
+  vmImage: 'windows-latest'
+
+parameters:
+  - name: G9SignalRSuperNetCore
+    type: string
+    default: 'MyProject'
+    values:
+      - 'G9SignalRSuperNetCore.Server'
+      - 'G9SignalRSuperNetCore.Client'
+  - name: solutionPath
+    type: string
+    default: '**/*.sln'
+  - name: testProjects
+    type: string
+    default: '**/bin/Release/**/*.dll'
+  - name: nugetPackages
+    type: object
+    default:
+      - '**/bin/Release/*.nupkg'
+
+variables:
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+
+steps:
+# Install NuGet tool
+- task: NuGetToolInstaller@1
+
+# Restore NuGet packages
+- task: NuGetCommand@2
+  inputs:
+    restoreSolution: '$(solutionPath)'
+
+# Build the solution
+- task: VSBuild@1
+  inputs:
+    solution: '$(solutionPath)'
+    msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:ContinuousIntegrationBuild=true /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:PackageLocation="$(build.artifactStagingDirectory)"'
+    platform: '$(buildPlatform)'
+    configuration: '$(buildConfiguration)'
+
+# Run tests (optional, dynamically discover test assemblies)
+- ${{ if parameters.testProjects != '' }}:
+  - task: VSTest@2
+    displayName: Run Unit Tests
+    inputs:
+      testSelector: testAssemblies
+      testAssemblyVer2: '$(parameters.testProjects)'
+      platform: '$(buildPlatform)'
+      configuration: '$(buildConfiguration)'
+
+# Publish NuGet packages (handle multiple packages dynamically)
+- ${{ each packagePath in parameters.nugetPackages }}:
+  - task: DotNetCoreCLI@2
+    displayName: "Publish NuGet Package - $(packagePath)"
+    inputs:
+      command: custom
+      custom: nuget
+      arguments: >
+        push $(Pipeline.Workspace)/$(packagePath)
+        -s https://api.nuget.org/v3/index.json
+        -k $(NuGetApiKey) 
+        --skip-duplicate
+
+# Sync with GitHub (optional, centralized logic)
+- task: PowerShell@2
+  displayName: "Sync Azure DevOps repo with GitHub repo"
+  inputs:
+    targetType: 'inline'
+    script: |
+      # Reflect Azure DevOps repo changes to GitHub repo
+      $stageDir = '$(Build.SourcesDirectory)' | Split-Path
+      $githubDir = $stageDir + "\gitHub"
+      $destination = $githubDir + "\$(parameters.projectName).git"
+      $alias = 'YourUsername:' + "$(Github.PAT)"
+      $sourceURL = 'https://$(AzureDevOps.PAT)@dev.azure.com/YourOrg/YourProject/_git/$(parameters.projectName)'
+      $destURL = 'https://' + $alias + '@github.com/YourUsername/$(parameters.projectName).git'
+
+      # Clone the repository
+      if (Test-Path -path $githubDir) {
+        Remove-Item -Path $githubDir -Recurse -Force
+      }
+      New-Item -ItemType directory -Path $githubDir | Out-Null
+      Set-Location $githubDir
+      git clone --mirror $sourceURL
+
+      # Sync with GitHub
+      Set-Location $destination
+      git remote rm secondary 2>$null
+      git remote add --mirror=fetch secondary $destURL
+      git fetch origin
+      git push secondary --all
+
+      # Clean up
+      Set-Location $stageDir
+      if (Test-Path -path $githubDir) {
+        Remove-Item -Path $githubDir -Recurse -Force
+      }
