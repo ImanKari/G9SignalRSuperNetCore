@@ -10,7 +10,7 @@ parameters:
     default: 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.sln'
   - name: testProjects
     type: string
-    default: '' # Leave empty if no test projects are defined
+    default: 'null' # Leave empty if no test projects are defined
   - name: nugetPackages
     type: object
     default:
@@ -30,6 +30,14 @@ steps:
   inputs:
     restoreSolution: '${{ parameters.solutionPath }}'
 
+- task: VSBuild@1
+  displayName: Build Dependencies
+  inputs:
+    solution: 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Server.ClientResourceGenerator/G9SignalRSuperNetCore.Server.ClientResourceGenerator.csproj'
+    msbuildArgs: '/p:Configuration=Release'
+    platform: 'Any CPU'
+    configuration: 'Release'
+
 # Build the solution
 - task: VSBuild@1
   inputs:
@@ -40,7 +48,7 @@ steps:
 
 # Set runtime variable for tests
 - script: |
-    if [ "${{ parameters.testProjects }}" != "" ]; then
+    if [ "${{ parameters.testProjects }}" != "null" ]; then
       echo "##vso[task.setvariable variable=runTests]true"
     else
       echo "##vso[task.setvariable variable=runTests]false"
