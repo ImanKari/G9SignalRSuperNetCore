@@ -72,10 +72,11 @@ steps:
           git config --global --list
 
           Write-StepHeader "Repository URLs"
-          $sourceURL = "https://$(System.AccessToken)@dev.azure.com/$(System.TeamFoundationCollectionUri)/_git/$repoName"
+          $sourceURL = "https://$(System.AccessToken)@dev.azure.com/$(Build.Repository.Uri)/_git/$repoName"
           $destURL = "https://$(Github.PAT)@github.com/ImanKari/$repoName.git"
-          Write-Host "Source URL: [MASKED]dev.azure.com/.../$repoName"
-          Write-Host "Destination URL: [MASKED]github.com/ImanKari/$repoName.git"
+
+          Write-Host "Constructed Source URL: $($sourceURL -replace 'https://.*@', 'https://[MASKED]@')"
+          Write-Host "Constructed Destination URL: $($destURL -replace 'https://.*@', 'https://[MASKED]@')"
 
           Write-StepHeader "Directory Cleanup"
           if (Test-Path -Path $githubDir) {
@@ -101,15 +102,21 @@ steps:
 
           Write-StepHeader "Cloning Repository"
           Write-Host "Cloning from Azure DevOps..."
-          $cloneOutput = git clone --mirror $sourceURL 2>&1
-          Write-Host "Clone Output:"
-          Write-Host $cloneOutput
-          if ($LASTEXITCODE -ne 0) {
-              Write-Host "##vso[task.logissue type=error]Git clone failed with exit code: $LASTEXITCODE"
-              Write-Host "Clone output: $cloneOutput"
-              throw "Git clone operation failed"
+          try {
+              $cloneOutput = git clone --mirror $sourceURL 2>&1
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Host "##vso[task.logissue type=error]Git clone failed with exit code: $LASTEXITCODE"
+                  Write-Host "Clone output: $cloneOutput"
+                  throw "Git clone operation failed"
+              }
+              Write-Host "Clone completed successfully"
+          } catch {
+              Write-Host "##vso[task.logissue type=error]Error cloning repository"
+              Write-Host "Source URL: $($sourceURL -replace 'https://.*@', 'https://[MASKED]@')"
+              Write-Host "Error Details: $_"
+              throw
           }
-          Write-Host "Clone completed successfully"
+
 
           Write-StepHeader "Changing to Repository Directory"
           Write-Host "Attempting to change to: $destination"
