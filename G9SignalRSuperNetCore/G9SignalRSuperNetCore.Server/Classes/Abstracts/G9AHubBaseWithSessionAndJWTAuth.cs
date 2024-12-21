@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
 namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
@@ -16,7 +17,8 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 /// <typeparam name="TClientSideMethodsInterface">
 ///     An interface that defines client-side methods which can be called from the server.
 /// </typeparam>
-public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TSession, TClientSideMethodsInterface>
+[Authorize]
+public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideMethodsInterface, TSession>
     : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
     where TTargetClass : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>, new()
     where TClientSideMethodsInterface : class

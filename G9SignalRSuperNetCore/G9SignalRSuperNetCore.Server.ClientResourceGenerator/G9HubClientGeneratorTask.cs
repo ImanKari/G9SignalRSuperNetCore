@@ -141,11 +141,45 @@ public class G9HubClientGeneratorTask : Task
         var listenersInterface = $"G9I{className}Listeners";
         var clientClass = $"G9C{className}Client";
 
-        // Extract the RoutePattern value or fallback to className
-        var routePattern = ExtractRoutePatternValue(hubClass, className);
+        // Determine the base type and adjust structure based on inheritance
+        var isJwtAuthHub = hubClass.BaseList.Types
+            .Any(baseType => baseType.ToString().Contains("G9AHubBaseWithJWTAuth"));
+        var isSessionAndJwtAuthHub = hubClass.BaseList.Types
+            .Any(baseType => baseType.ToString().Contains("G9AHubBaseWithSessionAndJWTAuth"));
+
+        if (isJwtAuthHub || isSessionAndJwtAuthHub)
+        {
+            methodsInterface += "WithJWTAuth";
+            listenersInterface += "WithJWTAuth";
+            clientClass += "WithJWTAuth";
+        }
+
+        // Extract route patterns for JWT-supported hubs
+        var routePattern = isJwtAuthHub || isSessionAndJwtAuthHub
+            ? ExtractRoutePatternValue(hubClass, "/SecureHub")
+            : ExtractRoutePatternValue(hubClass, className);
+        var authRoutePattern = isJwtAuthHub || isSessionAndJwtAuthHub
+            ? ExtractAuthRoutePatternValue(hubClass, "/AuthHub")
+            : null;
 
         var listenersDefinition = GenerateInterfaceDefinition(clientInterface);
         var methodsDefinition = GenerateMethodsDefinition(serverMethods);
+
+        var baseClass = isJwtAuthHub || isSessionAndJwtAuthHub
+            ? $"G9SignalRSuperNetCoreClientWithJWTAuth<{clientClass}, {methodsInterface}, {listenersInterface}>"
+            : $"G9SignalRSuperNetCoreClient<{clientClass}, {methodsInterface}, {listenersInterface}>";
+
+        var authParameter = isJwtAuthHub || isSessionAndJwtAuthHub 
+            ? ", string? jwToken = null,\r\n\tFunc<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,\r\n\tFunc<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilderForAuthServer = null,\r\n\tAction<HttpConnectionOptions>? configureHttpConnection = null,\r\n\tAction<HttpConnectionOptions>? configureHttpConnectionForAuthServer = null"
+            : ",\r\n        Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,\r\n        Action<HttpConnectionOptions>? configureHttpConnection = null";
+
+        var baseParameter = isJwtAuthHub || isSessionAndJwtAuthHub
+            ? ", jwToken, customConfigureBuilder, customConfigureBuilderForAuthServer, configureHttpConnection, configureHttpConnectionForAuthServer"
+            : ", customConfigureBuilder, configureHttpConnection";
+
+        var authRouteInitialization = isJwtAuthHub || isSessionAndJwtAuthHub
+            ? $", $\"{{serverUrl}}{authRoutePattern}\""
+            : string.Empty;
 
         return $@"
 /* ---------------------------------------------------------------
@@ -185,14 +219,15 @@ public interface {listenersInterface}
 /// }}
 /// </code>
 /// </summary>
-public class {clientClass} : G9SignalRSuperNetCoreClient<{clientClass}, {methodsInterface}, {listenersInterface}>, {listenersInterface}
+public class {clientClass} : {baseClass}, {listenersInterface}
 {{
-    public {clientClass}(string serverUrl)
-        : base($""{{serverUrl}}{routePattern}"")
+    public {clientClass}(string serverUrl{authParameter})
+        : base($""{{serverUrl}}{routePattern}""{authRouteInitialization}{baseParameter})
     {{
     }}
 }}";
     }
+
 
 
     /// <summary>
@@ -347,4 +382,31 @@ public class {clientClass} : G9SignalRSuperNetCoreClient<{clientClass}, {methods
         // If no valid return value is found, fall back to class name
         return className;
     }
+
+    /// <summary>
+    ///     Extracts the value returned by the AuthAndGetJWTRoutePattern method in the hub class.
+    ///     If the method is not implemented or returns invalid data, it falls back to the default route.
+    /// </summary>
+    /// <param name="hubClass">The class declaration syntax.</param>
+    /// <param name="defaultRoute">The default route pattern to return if not found.</param>
+    /// <returns>The route pattern string or the default route as a fallback.</returns>
+    private string ExtractAuthRoutePatternValue(ClassDeclarationSyntax hubClass, string defaultRoute)
+    {
+        var authRouteMethod = hubClass.Members
+            .OfType<MethodDeclarationSyntax>()
+            .FirstOrDefault(m => m.Identifier.Text == "AuthAndGetJWTRoutePattern" && m.ParameterList.Parameters.Count == 0);
+
+        if (authRouteMethod == null) return defaultRoute;
+
+        var returnStatement = authRouteMethod.Body?.Statements
+            .OfType<ReturnStatementSyntax>()
+            .FirstOrDefault();
+
+        if (returnStatement?.Expression is LiteralExpressionSyntax literal &&
+            literal.IsKind(SyntaxKind.StringLiteralExpression))
+            return literal.Token.ValueText;
+
+        return defaultRoute;
+    }
+
 }

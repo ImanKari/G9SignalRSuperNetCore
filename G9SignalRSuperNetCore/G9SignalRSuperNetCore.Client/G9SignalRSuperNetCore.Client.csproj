@@ -53,7 +53,6 @@
 
 	<ItemGroup>
 		<PackageReference Include="Castle.Core" Version="5.1.1" />
-		<PackageReference Include="G9AssemblyManagement" Version="1.4.5.21" />
 		<PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0" />
 	</ItemGroup>
 

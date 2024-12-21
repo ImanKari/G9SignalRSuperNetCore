@@ -22,8 +22,8 @@ public abstract class
     private Func<bool, string?, string?, Task>? _authResult;
 
     protected G9SignalRSuperNetCoreClientWithJWTAuth(
-        string serverAuthUrl,
         string serverUrl,
+        string serverAuthUrl,
         string? jwToken = null,
         Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,
         Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilderForAuthServer = null,

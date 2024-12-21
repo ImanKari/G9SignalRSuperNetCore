@@ -7,7 +7,7 @@ using G9SignalRSuperNetCore.Server.Enums;
 
 namespace G9SignalRSuperNetCore.WebServer;
 
-public class CustomHubWithJWTAuthAndSession : G9AHubBaseWithSessionAndJWTAuth<CustomHubWithJWTAuthAndSession, CustomHubSession, CustomClientInterface>
+public class CustomHubWithJWTAuthAndSession : G9AHubBaseWithSessionAndJWTAuth<CustomHubWithJWTAuthAndSession, CustomClientInterface, CustomHubSession>
 {
     public override string RoutePattern()
     {

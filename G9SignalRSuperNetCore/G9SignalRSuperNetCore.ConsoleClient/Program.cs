@@ -41,7 +41,7 @@ internal class Program
         var token =
             "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJhZG1pbiIsInN1YiI6Ik1ldGkiLCJqdGkiOiIyMTg2ZjYxNC0yM2I0LTQ0NjEtYmIxNC1lNDVmNjFmZDEwZTIiLCJleHAiOjE3MzQ5MTQ2NjAsImlzcyI6Ikc5VE0iLCJhdWQiOiJHOVRNIn0.zKHP8UBqdr6-dGWRp4LsHiYefRzZi6e4dxO9GPDVOtE";
 
-        var client = new G9CCustomHubClientWithJWTAuth("https://localhost:7159");
+        var client = new G9CCustomHubWithJWTAuthAndSessionClientWithJWTAuth("https://localhost:7159");
         
 
         var hasResult = false;
@@ -82,7 +82,7 @@ internal class Program
         client.AssignListenerEvent(
             s => s.Replay, (string param) =>
             {
-                Console.WriteLine(param);
+                Console.WriteLine($"AssignListenerEvent: {param}");
                 return Task.CompletedTask;
             });
 

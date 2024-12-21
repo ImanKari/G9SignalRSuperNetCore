@@ -12,7 +12,7 @@ public class Program
         var builder = WebApplication.CreateBuilder(args);
 
         // SignalR Super Net Core Server Service
-        builder.Services.AddSignalRSuperNetCoreServerService<CustomHubWithJWTAuth, CustomClientInterface>();
+        builder.Services.AddSignalRSuperNetCoreServerService<CustomHubWithJWTAuthAndSession, CustomClientInterface>();
 
 #if DEBUG
         builder.Logging.AddConsole();
@@ -54,7 +54,7 @@ public class Program
 
         //app.MapHub<G9SignalRSuperNetCoreServerHub>("/aa", options => { });
         //app.AddSignalRSuperNetCoreServerHub<CustomHub, CustomClientInterface>();
-        app.AddSignalRSuperNetCoreServerHub<CustomHubWithJWTAuth, CustomClientInterface>();
+        app.AddSignalRSuperNetCoreServerHub<CustomHubWithJWTAuthAndSession, CustomClientInterface>();
         //app.AddSignalRSuperNetCoreServerHub<CustomHubWithSession, CustomClientInterface>();
 
         //Claim a1 = new Claim(ClaimTypes.NameIdentifier, "Identifier");

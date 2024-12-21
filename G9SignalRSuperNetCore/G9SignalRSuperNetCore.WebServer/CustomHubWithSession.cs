@@ -2,7 +2,7 @@
 
 namespace G9SignalRSuperNetCore.WebServer;
 
-public class CustomHubWithSession : G9AHubBaseWithSession<CustomHubWithSession, CustomHubSession, CustomClientInterface>
+public class CustomHubWithSession : G9AHubBaseWithSession<CustomHubWithSession, CustomClientInterface, CustomHubSession>
 {
     public override string RoutePattern()
     {
