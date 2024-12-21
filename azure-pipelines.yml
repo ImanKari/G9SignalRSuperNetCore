@@ -5,9 +5,9 @@ pool:
   vmImage: 'windows-latest'
 
 parameters:
-  - name: G9SignalRSuperNetCore
+  - name: projectName
     type: string
-    default: 'MyProject'
+    default: 'G9SignalRSuperNetCore.Server'
     values:
       - 'G9SignalRSuperNetCore.Server'
       - 'G9SignalRSuperNetCore.Client'
@@ -44,12 +44,20 @@ steps:
     configuration: '$(buildConfiguration)'
 
 # Run tests (optional, dynamically discover test assemblies)
-- ${{ if parameters.testProjects != '' }}:
+- script: |
+    if [ "$(testProjects)" != "" ]; then
+      echo "##vso[task.setvariable variable=runTests]true"
+    else
+      echo "##vso[task.setvariable variable=runTests]false"
+    fi
+  displayName: "Check if tests should run"
+
+- ${{ if eq(variables.runTests, 'true') }}:
   - task: VSTest@2
     displayName: Run Unit Tests
     inputs:
       testSelector: testAssemblies
-      testAssemblyVer2: '$(parameters.testProjects)'
+      testAssemblyVer2: '$(testProjects)'
       platform: '$(buildPlatform)'
       configuration: '$(buildConfiguration)'
 
@@ -75,10 +83,10 @@ steps:
       # Reflect Azure DevOps repo changes to GitHub repo
       $stageDir = '$(Build.SourcesDirectory)' | Split-Path
       $githubDir = $stageDir + "\gitHub"
-      $destination = $githubDir + "\$(parameters.projectName).git"
+      $destination = $githubDir + "\$(projectName).git"
       $alias = 'YourUsername:' + "$(Github.PAT)"
-      $sourceURL = 'https://$(AzureDevOps.PAT)@dev.azure.com/YourOrg/YourProject/_git/$(parameters.projectName)'
-      $destURL = 'https://' + $alias + '@github.com/YourUsername/$(parameters.projectName).git'
+      $sourceURL = 'https://$(AzureDevOps.PAT)@dev.azure.com/YourOrg/YourProject/_git/$(projectName)'
+      $destURL = 'https://' + $alias + '@github.com/YourUsername/$(projectName).git'
 
       # Clone the repository
       if (Test-Path -path $githubDir) {
