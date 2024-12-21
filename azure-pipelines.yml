@@ -25,6 +25,7 @@ variables:
   buildConfiguration: 'Release'
 
 steps:
+
 # Install NuGet tool
 - task: NuGetToolInstaller@1
 
@@ -50,7 +51,6 @@ steps:
     configuration: '$(buildConfiguration)'
 
 # Set runtime variable for tests
-# Set runtime variable for tests
 - task: Bash@3
   displayName: "Evaluate Test Projects"
   inputs:
@@ -72,28 +72,100 @@ steps:
       platform: '$(buildPlatform)'
       configuration: '$(buildConfiguration)'
 
-# NuGet packages list
-- task: CmdLine@2
-  displayName: "List NuGet Packages to Publish"
-  inputs:
-    script: |
-      echo Publishing the following NuGet packages:
-      for %%G in (%{{ parameters.nugetPackages }}%) do (
-        echo $(Pipeline.Workspace)/%%G
-      )
-
-# Publish NuGet packages
+# Validate and publish NuGet packages
 - ${{ each packagePath in parameters.nugetPackages }}:
-  - task: DotNetCoreCLI@2
+  - task: PowerShell@2
     displayName: "Publish NuGet Package - ${{ packagePath }}"
     inputs:
-      command: custom
-      custom: nuget
-      arguments: >
-        push $(Pipeline.Workspace)/${{ packagePath }}
-        -s https://api.nuget.org/v3/index.json
-        -k $(NuGetApiKey) 
-        --skip-duplicate
+      targetType: 'inline'
+      script: |
+        Write-Host "==============================================="
+        Write-Host "Starting NuGet Package Publishing Process"
+        Write-Host "==============================================="
+        
+        # Display current working directory and package path
+        Write-Host "Current Directory: $(Get-Location)"
+        $packagePath = "${{ packagePath }}"
+        Write-Host "Looking for packages in: $packagePath"
+        
+        # Verify path exists
+        if (-not (Test-Path (Split-Path $packagePath -Parent))) {
+            Write-Host "##vso[task.logissue type=warning]Parent directory does not exist: $(Split-Path $packagePath -Parent)"
+            Write-Host "Directory Structure:"
+            Get-ChildItem -Path "$(Get-Location)" -Recurse -Directory | Select-Object FullName | Format-Table
+            throw "Parent directory not found"
+        }
+        
+        # Try to find packages
+        try {
+            $packages = Get-ChildItem -Path $packagePath -ErrorAction Stop
+            Write-Host "Found $($packages.Count) package(s)"
+        }
+        catch {
+            Write-Host "##vso[task.logissue type=error]Error searching for packages: $_"
+            Write-Host "Contents of parent directory:"
+            Get-ChildItem -Path (Split-Path $packagePath -Parent) -Force | Format-Table Name, LastWriteTime, Length
+            throw "Failed to locate packages"
+        }
+        
+        # If no packages found
+        if ($packages.Count -eq 0) {
+            Write-Host "##vso[task.logissue type=warning]No packages found matching pattern: $packagePath"
+            Write-Host "Searching nearby directories for .nupkg files..."
+            $nearbyPackages = Get-ChildItem -Path (Split-Path $packagePath -Parent) -Recurse -Filter "*.nupkg"
+            if ($nearbyPackages) {
+                Write-Host "Found these .nupkg files in nearby directories:"
+                $nearbyPackages | ForEach-Object {
+                    Write-Host " - $($_.FullName)"
+                }
+            }
+            throw "No packages found to publish"
+        }
+        
+        # Process each package
+        foreach ($package in $packages) {
+            Write-Host "`n-------------------------------------------"
+            Write-Host "Processing package: $($package.Name)"
+            Write-Host "Full path: $($package.FullName)"
+            Write-Host "Last modified: $($package.LastWriteTime)"
+            Write-Host "Size: $([math]::Round($package.Length / 1KB, 2)) KB"
+            Write-Host "-------------------------------------------"
+            
+            # Verify package exists and is readable
+            if (-not (Test-Path $package.FullName -PathType Leaf)) {
+                Write-Host "##vso[task.logissue type=error]Package file no longer exists or is not accessible: $($package.FullName)"
+                continue
+            }
+            
+            # Verify package is a valid .nupkg file
+            if (-not $package.Extension -eq ".nupkg") {
+                Write-Host "##vso[task.logissue type=warning]File is not a .nupkg file: $($package.FullName)"
+                continue
+            }
+            
+            # Attempt to publish
+            try {
+                Write-Host "Attempting to publish package..."
+                $output = & dotnet nuget push $package.FullName --api-key $(NuGetApiKey) --source https://api.nuget.org/v3/index.json --skip-duplicate 2>&1
+                Write-Host "Push command output:"
+                Write-Host $output
+                
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "##vso[task.logissue type=success]Successfully published package: $($package.Name)"
+                } else {
+                    Write-Host "##vso[task.logissue type=error]Failed to publish package. Exit code: $LASTEXITCODE"
+                    throw "Package push failed with exit code $LASTEXITCODE"
+                }
+            }
+            catch {
+                Write-Host "##vso[task.logissue type=error]Exception while publishing package: $_"
+                throw "Failed to publish package: $_"
+            }
+        }
+        
+        Write-Host "`n==============================================="
+        Write-Host "Package Publishing Process Complete"
+        Write-Host "==============================================="
 
 # Sync Azure DevOps repo with GitHub repo
 - task: PowerShell@2
