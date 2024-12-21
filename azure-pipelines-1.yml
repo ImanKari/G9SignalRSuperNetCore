@@ -23,7 +23,6 @@ parameters:
 variables:
   buildPlatform: 'Any CPU'
   buildConfiguration: 'Release'
-  nugetPackagesString: $[join(parameters.nugetPackages, ' ')] # Join array elements into a single string
 
 steps:
 
@@ -34,6 +33,7 @@ steps:
     targetType: 'inline'
     script: |
       echo "Publishing the following NuGet packages:"
-      for package in $nugetPackagesString; do
+      nugetPackages="{{ parameters.nugetPackages }}"
+      for package in $nugetPackages; do
         echo "$package"
       done
