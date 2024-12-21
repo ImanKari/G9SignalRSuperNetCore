@@ -23,7 +23,7 @@
 	</ItemGroup>
 
 	<UsingTask TaskName="G9HubClientGeneratorTask"
-	           AssemblyFile="..\G9SignalRSuperNetCore.Server.ClientResourceGenerator\bin\Debug\netstandard2.0\G9SignalRSuperNetCore.Server.ClientResourceGenerator.dll"
+	           AssemblyFile="..\G9SignalRSuperNetCore.Server.ClientResourceGenerator\bin\$(Configuration)\netstandard2.0\G9SignalRSuperNetCore.Server.ClientResourceGenerator.dll"
 	           TaskFactory="TaskHostFactory" />
 
 	<Target Name="GenerateClientHelpers" AfterTargets="Build">
