@@ -118,7 +118,7 @@ steps:
               Write-Host "Successfully changed to repository directory"
               Write-Host "Current location: $(Get-Location)"
           } else {
-              Write-Host "Available directories in $githubDir:"
+              Write-Host "Available directories in ${githubDir}:"
               Get-ChildItem -Path $githubDir -Directory | ForEach-Object {
                   Write-Host " - $($_.FullName)"
               }
