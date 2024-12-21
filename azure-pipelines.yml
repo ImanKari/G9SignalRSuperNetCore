@@ -151,7 +151,7 @@ steps:
                 Write-Host $output
                 
                 if ($LASTEXITCODE -eq 0) {
-                    Write-Host "##vso[task.logissue type=success]Successfully published package: $($package.Name)"
+                    Write-Host "Successfully published package: $($package.Name)"
                 } else {
                     Write-Host "##vso[task.logissue type=error]Failed to publish package. Exit code: $LASTEXITCODE"
                     throw "Package push failed with exit code $LASTEXITCODE"
