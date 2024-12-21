@@ -10,30 +10,27 @@ parameters:
     default: 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.sln'
   - name: testProjects
     type: string
-    default: 'null' # Leave empty if no test projects are defined
+    default: 'null'
   - name: nugetPackages
     type: object
     default:
-      - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Client/bin/Release/*.nupkg'
-      - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Server/bin/Release/*.nupkg'
+    - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Client/bin/Release/*.nupkg'
+    - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Server/bin/Release/*.nupkg'
   - name: repositoryName
     type: string
-    default: 'G9SignalRSuperNetCore' # Default to the same as the project name
+    default: 'G9SignalRSuperNetCore'
 
 variables:
   buildPlatform: 'Any CPU'
   buildConfiguration: 'Release'
 
 steps:
-
-# Validate NuGet Package Paths
 - task: Bash@3
   displayName: "Validate NuGet Package Paths"
   inputs:
     targetType: 'inline'
     script: |
-      echo "Publishing the following NuGet packages:"
-      nugetPackages="{{ parameters.nugetPackages }}"
-      for package in $nugetPackages; do
+      echo "NuGet Package Paths:"
+      for package in "${{ join(',', parameters.nugetPackages) }}"; do
         echo "$package"
       done
