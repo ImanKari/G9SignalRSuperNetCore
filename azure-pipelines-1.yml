@@ -73,11 +73,12 @@ steps:
 
           Write-StepHeader "Repository URLs"
           # Correct the source URL construction
-          $sourceURL = "https://$(System.AccessToken)@$(Build.Repository.Uri)"
+          $sourceURL = "https://$(System.AccessToken)@$(System.TeamFoundationCollectionUri)_git/$repoName"
           $destURL = "https://$(Github.PAT)@github.com/ImanKari/$repoName.git"  
           # Mask sensitive parts for output
           Write-Host "Constructed Source URL: $($sourceURL -replace 'https://.*@', 'https://[MASKED]@')"
           Write-Host "Constructed Destination URL: $($destURL -replace 'https://.*@', 'https://[MASKED]@')"
+
 
           Write-StepHeader "Directory Cleanup"
           if (Test-Path -Path $githubDir) {
