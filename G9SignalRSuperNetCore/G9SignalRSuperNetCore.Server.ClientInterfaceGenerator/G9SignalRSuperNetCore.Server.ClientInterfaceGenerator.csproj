@@ -1,0 +1,58 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net9.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<Version>1.0.0.7</Version>
+		<AssemblyVersion>1.0.0.7</AssemblyVersion>
+		<FileVersion>1.0.0.7</FileVersion>
+		<PackageIcon>G9-Icon.png</PackageIcon>
+		<PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<EmbedAllSources>true</EmbedAllSources>
+		<EmbedUntrackedSources>true</EmbedUntrackedSources>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<NoWarn>$(NoWarn);NU5100</NoWarn>
+		<!-- Suppress NU5100 -->
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Content Include="..\G9SignalRSuperNetCore.Server.ClientResourceGenerator\bin\$(Configuration)\netstandard2.0\G9SignalRSuperNetCore.Server.ClientResourceGenerator.dll" Pack="true" PackagePath="buildTransitive\ClientResourceGenerator\">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="..\G9SignalRSuperNetCore.Server.ClientResourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.dll" Pack="true" PackagePath="buildTransitive\ClientResourceGenerator\">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="..\G9SignalRSuperNetCore.Server.ClientResourceGenerator\bin\$(Configuration)\netstandard2.0\Microsoft.CodeAnalysis.CSharp.dll" Pack="true" PackagePath="buildTransitive\ClientResourceGenerator\">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+	</ItemGroup>
+
+	<ItemGroup>
+		<Content Include="buildTransitive\G9SignalRSuperNetCore.Server.ClientInterfaceGenerator.targets" Pack="true" PackagePath="buildTransitive\" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Include="..\..\README.md" Pack="true" PackagePath="" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Include="README.md" Pack="true" PackagePath="" />
+		<None Include="LICENSE.md" Pack="true" PackagePath="" />
+		<None Include="G9-Icon.png" Pack="true" PackagePath="" />
+	</ItemGroup>
+
+	<Target Name="CopyPackage" AfterTargets="Pack">
+		<PropertyGroup>
+			<PackageOutputPath>bin\$(Configuration)\</PackageOutputPath>
+		</PropertyGroup>
+
+		<Copy
+		  SourceFiles="$(PackageOutputPath)$(PackageId).$([System.Text.RegularExpressions.Regex]::Replace(&quot;$(PackageVersion)&quot;, &quot;^(.+?)(\.0+)$&quot;, &quot;$1&quot;)).nupkg"
+		  DestinationFolder="Z:\LocalNugetPackages\"
+		  Condition="Exists('Z:\LocalNugetPackages\')" />
+	</Target>
+
+</Project>

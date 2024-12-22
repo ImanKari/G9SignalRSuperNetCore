@@ -6,9 +6,9 @@
 		<Nullable>enable</Nullable>
 
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-		<Version>1.0.0.1</Version>
-		<AssemblyVersion>1.0.0.1</AssemblyVersion>
-		<FileVersion>1.0.0.1</FileVersion>
+		<Version>1.0.0.7</Version>
+		<AssemblyVersion>1.0.0.7</AssemblyVersion>
+		<FileVersion>1.0.0.7</FileVersion>
 		<ApplicationIcon></ApplicationIcon>
 		<PackageIcon>G9-Icon.png</PackageIcon>
 		<PackageLicenseFile>LICENSE.md</PackageLicenseFile>
@@ -62,17 +62,22 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <ProjectReference Include="..\G9SignalRSuperNetCore.ConsoleClient\G9SignalRSuperNetCore.ConsoleClient.csproj" />
-	  <ProjectReference Include="..\G9SignalRSuperNetCore.Server.ClientResourceGenerator\G9SignalRSuperNetCore.Server.ClientResourceGenerator.csproj" />
-	</ItemGroup>
-
-	<ItemGroup>
 	  <Folder Include="Classes\Hubs\" />
 	</ItemGroup>
 
-	<!--<Target Name="CopyPackage" AfterTargets="Pack">
-		<Copy SourceFiles="$(OutputPath)$(PackageId).$([System.Text.RegularExpressions.Regex]::Replace(&quot;$(PackageVersion)&quot;, &quot;^(.+?)(\.0+)$&quot;, &quot;$1&quot;)).nupkg" DestinationFolder="Z:\LocalNugetPackages\" Condition="Exists('Z:\LocalNugetPackages\')" />
-		<Copy SourceFiles="$(OutputPath)$(PackageId).$([System.Text.RegularExpressions.Regex]::Replace(&quot;$(PackageVersion)&quot;, &quot;^(.+?)(\.0+)$&quot;, &quot;$1&quot;)).symbols.nupkg" DestinationFolder="Z:\LocalNugetPackages\" Condition="Exists('Z:\LocalNugetPackages\')" />
-	</Target>-->
+	<ItemGroup>
+	  <Compile Update="G9SignalRSuperNetCoreServer.cs">
+	    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+	  </Compile>
+	</ItemGroup>
+
+	<Target Name="CopyPackage" AfterTargets="Pack">
+		<PropertyGroup>
+			<PackageOutputPath>bin\$(Configuration)\</PackageOutputPath>
+		</PropertyGroup>
+
+		<Copy SourceFiles="$(PackageOutputPath)$(PackageId).$([System.Text.RegularExpressions.Regex]::Replace(&quot;$(PackageVersion)&quot;, &quot;^(.+?)(\.0+)$&quot;, &quot;$1&quot;)).nupkg" DestinationFolder="Z:\LocalNugetPackages\" Condition="Exists('Z:\LocalNugetPackages\')" />
+		<Copy SourceFiles="$(PackageOutputPath)$(PackageId).$([System.Text.RegularExpressions.Regex]::Replace(&quot;$(PackageVersion)&quot;, &quot;^(.+?)(\.0+)$&quot;, &quot;$1&quot;)).symbols.nupkg" DestinationFolder="Z:\LocalNugetPackages\" Condition="Exists('Z:\LocalNugetPackages\')" />
+	</Target>
 
 </Project>

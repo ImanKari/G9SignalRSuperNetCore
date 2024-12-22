@@ -1,0 +1,26 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+	<PropertyGroup>
+		<ClientResourceGeneratorPath>$(MSBuildThisFileDirectory)ClientResourceGenerator\</ClientResourceGeneratorPath>
+	</PropertyGroup>
+
+	<Target Name="CopyClientResourceGeneratorFiles" BeforeTargets="Build">
+		<ItemGroup>
+			<ClientResourceGeneratorFiles Include="$(ClientResourceGeneratorPath)*.dll" />
+		</ItemGroup>
+		<Copy
+			SourceFiles="@(ClientResourceGeneratorFiles)"
+			DestinationFolder="$(OutputPath)ClientResourceGenerator"
+			SkipUnchangedFiles="true" />
+	</Target>
+
+	<UsingTask
+		TaskName="G9HubClientGeneratorTask"
+		AssemblyFile="$(MSBuildThisFileDirectory)ClientResourceGenerator\G9SignalRSuperNetCore.Server.ClientResourceGenerator.dll"
+		TaskFactory="TaskHostFactory" />
+
+	<Target Name="GenerateClientHelpers" AfterTargets="Build">
+		<G9HubClientGeneratorTask
+			InputDirectory="$(MSBuildProjectDirectory)"
+			OutputFile="$(MSBuildProjectDirectory)\GeneratedClientHelpers.txt" />
+	</Target>
+</Project>
