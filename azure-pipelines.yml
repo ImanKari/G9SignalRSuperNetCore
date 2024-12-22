@@ -16,6 +16,7 @@ parameters:
     default:
       - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Client/bin/Release/*.nupkg'
       - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Server/bin/Release/*.nupkg'
+      - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Server.ClientInterfaceGenerator/bin/Release/*.nupkg'
   - name: repositoryName
     type: string
     default: 'G9SignalRSuperNetCore' # Default to the same as the project name
