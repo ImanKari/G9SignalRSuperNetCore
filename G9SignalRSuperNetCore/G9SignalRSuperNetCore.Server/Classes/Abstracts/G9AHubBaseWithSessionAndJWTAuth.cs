@@ -20,7 +20,7 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 [Authorize]
 public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideMethodsInterface, TSession>
     : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
-    where TTargetClass : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>, new()
+    where TTargetClass : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
     where TClientSideMethodsInterface : class
     where TSession : G9ASession, new()
 {

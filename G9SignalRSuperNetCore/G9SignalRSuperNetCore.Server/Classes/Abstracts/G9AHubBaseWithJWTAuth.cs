@@ -11,7 +11,7 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 public abstract class
     G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface> : G9AHubBase<TTargetClass,
     TClientSideMethodsInterface>
-    where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>, new()
+    where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
     where TClientSideMethodsInterface : class
 {
     public abstract string AuthAndGetJWTRoutePattern();

@@ -14,7 +14,7 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 ///     An interface that defines the client-side methods which can be called from the server.
 /// </typeparam>
 public abstract class G9AHubBase<TTargetClass, TClientSideMethodsInterface> : Hub<TClientSideMethodsInterface>
-    where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>, new()
+    where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
     where TClientSideMethodsInterface : class
 {
     #region Constructor

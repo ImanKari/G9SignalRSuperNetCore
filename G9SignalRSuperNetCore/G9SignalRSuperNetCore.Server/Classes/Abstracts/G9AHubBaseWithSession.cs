@@ -18,7 +18,7 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 /// </typeparam>
 public abstract class G9AHubBaseWithSession<TTargetClass, TClientSideMethodsInterface, TSession>
     : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
-    where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>, new()
+    where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
     where TClientSideMethodsInterface : class
     where TSession : G9ASession, new()
 {

@@ -38,8 +38,7 @@ internal class Program
         //}
 
 
-        var token =
-            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJhZG1pbiIsInN1YiI6Ik1ldGkiLCJqdGkiOiIyMTg2ZjYxNC0yM2I0LTQ0NjEtYmIxNC1lNDVmNjFmZDEwZTIiLCJleHAiOjE3MzQ5MTQ2NjAsImlzcyI6Ikc5VE0iLCJhdWQiOiJHOVRNIn0.zKHP8UBqdr6-dGWRp4LsHiYefRzZi6e4dxO9GPDVOtE";
+        var token = string.Empty;
 
         var client = new G9CCustomHubWithJWTAuthAndSessionClientWithJWTAuth("https://localhost:7159");
         
@@ -47,15 +46,16 @@ internal class Program
         var hasResult = false;
         var isAccepted = false;
         string authReason = null;
-        //await client.Authorize(
-        //    "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$",
-        //    (accept, reason, jwToken) =>
-        //    {
-        //        isAccepted = accept;
-        //        authReason = reason;
-        //        hasResult = true;
-        //        return Task.CompletedTask;
-        //    });
+        await client.Authorize(
+            "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$",
+            (accept, reason, jwToken) =>
+            {
+                isAccepted = accept;
+                authReason = reason;
+                hasResult = true;
+                token = jwToken;
+                return Task.CompletedTask;
+            });
 
 
         while (!hasResult && string.IsNullOrEmpty(token))

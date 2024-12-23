@@ -11,6 +11,11 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
+        // Add logging
+        builder.Logging.ClearProviders(); // Optional: Clear default providers
+        builder.Logging.AddConsole();    // Add console logging
+        builder.Logging.AddDebug();      // Add debug logging
+
         // SignalR Super Net Core Server Service
         builder.Services.AddSignalRSuperNetCoreServerService<CustomHubWithJWTAuthAndSession, CustomClientInterface>();
 

@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using G9AssemblyManagement;
 using G9SignalRSuperNetCore.Server.Classes.Abstracts;
 using G9SignalRSuperNetCore.Server.Classes.Hubs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -35,10 +36,10 @@ public static class G9SignalRSuperNetCoreServer
     /// </remarks>
     public static void AddSignalRSuperNetCoreServerService<TTargetClass, TClientSideMethodsInterface>(
         this IServiceCollection services, Func<HubConnectionContext, string?>? userIdentifier = null)
-        where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>, new()
+        where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
         where TClientSideMethodsInterface : class
     {
-        var targetClass = new TTargetClass();
+        var targetClass = G9Assembly.InstanceTools.CreateUninitializedInstanceFromType<TTargetClass>();
 
         // Configure custom UserIdProvider
         services.AddSingleton<IUserIdProvider, G9CUserIdProvider>(_ => new G9CUserIdProvider(userIdentifier));
@@ -118,10 +119,10 @@ public static class G9SignalRSuperNetCoreServer
     /// </remarks>
     public static void AddSignalRSuperNetCoreServerHub<TTargetClass, TClientSideMethodsInterface>(
         this IEndpointRouteBuilder app)
-        where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>, new()
+        where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
         where TClientSideMethodsInterface : class
     {
-        var targetClass = new TTargetClass();
+        var targetClass = G9Assembly.InstanceTools.CreateUninitializedInstanceFromType<TTargetClass>();
 
 
         if (targetClass is G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface> withJwtAuth)

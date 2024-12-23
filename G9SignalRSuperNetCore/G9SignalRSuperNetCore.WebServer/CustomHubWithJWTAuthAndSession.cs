@@ -9,6 +9,13 @@ namespace G9SignalRSuperNetCore.WebServer;
 
 public class CustomHubWithJWTAuthAndSession : G9AHubBaseWithSessionAndJWTAuth<CustomHubWithJWTAuthAndSession, CustomClientInterface, CustomHubSession>
 {
+
+    private readonly ILogger<CustomHubWithJWTAuthAndSession> _logger;
+
+    public CustomHubWithJWTAuthAndSession(ILogger<CustomHubWithJWTAuthAndSession> logger)
+    {
+        _logger = logger;
+    }
     public override string RoutePattern()
     {
         return "/SecureHub";
