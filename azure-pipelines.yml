@@ -66,21 +66,29 @@ steps:
     feedsToUse: 'select'
 
 - task: PowerShell@2
-  displayName: 'Copy Roslyn Dependencies'
+  displayName: 'Install and Copy Roslyn Dependencies'
   inputs:
     targetType: 'inline'
     script: |
-      $sourceDir = "C:\Users\VssAdministrator\.nuget\packages"
+      # Create target directory
       $targetDir = "D:\a\1\s\G9SignalRSuperNetCore\G9SignalRSuperNetCore.Server.ClientResourceGenerator\bin\Release\netstandard2.0"
+      New-Item -ItemType Directory -Path $targetDir -Force
       
-      # Create target directory if it doesn't exist
-      if (!(Test-Path $targetDir)) {
-        New-Item -ItemType Directory -Path $targetDir -Force
-      }
+      # Install required packages
+      dotnet add "D:\a\1\s\G9SignalRSuperNetCore\G9SignalRSuperNetCore.Server.ClientResourceGenerator\G9SignalRSuperNetCore.Server.ClientResourceGenerator.csproj" package Microsoft.CodeAnalysis --version 4.8.0
+      dotnet add "D:\a\1\s\G9SignalRSuperNetCore\G9SignalRSuperNetCore.Server.ClientResourceGenerator\G9SignalRSuperNetCore.Server.ClientResourceGenerator.csproj" package Microsoft.CodeAnalysis.CSharp --version 4.8.0
       
-      # Copy Roslyn dependencies
-      Copy-Item "$sourceDir\microsoft.codeanalysis\*\lib\netstandard2.0\Microsoft.CodeAnalysis.dll" $targetDir -Force
-      Copy-Item "$sourceDir\microsoft.codeanalysis.csharp\*\lib\netstandard2.0\Microsoft.CodeAnalysis.CSharp.dll" $targetDir -Force    
+      # Build the project to ensure packages are restored
+      dotnet build "D:\a\1\s\G9SignalRSuperNetCore\G9SignalRSuperNetCore.Server.ClientResourceGenerator\G9SignalRSuperNetCore.Server.ClientResourceGenerator.csproj" -c Release
+      
+      # Find and copy the DLLs
+      $nugetCache = "C:\Users\VssAdministrator\.nuget\packages"
+      Get-ChildItem -Path $nugetCache -Recurse -Filter "Microsoft.CodeAnalysis.dll" | Where-Object { $_.FullName -like "*\lib\netstandard2.0\*" } | Copy-Item -Destination $targetDir -Force
+      Get-ChildItem -Path $nugetCache -Recurse -Filter "Microsoft.CodeAnalysis.CSharp.dll" | Where-Object { $_.FullName -like "*\lib\netstandard2.0\*" } | Copy-Item -Destination $targetDir -Force
+      
+      # Verify the files
+      Write-Host "Contents of target directory:"
+      Get-ChildItem $targetDir | Format-Table Name, Length, LastWriteTime
 
 # Build the solution
 - task: VSBuild@1
