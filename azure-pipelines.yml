@@ -26,6 +26,115 @@ variables:
   buildConfiguration: 'Release'
 
 steps:
+# Test API keys validation
+- task: PowerShell@2
+  displayName: "Validate Required API Keys"
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "Starting API Keys validation..."
+      $hasError = $false
+      
+      # Function to validate GitHub PAT
+      function Test-GitHubPAT {
+          param($token)
+          try {
+              $headers = @{
+                  'Authorization' = "token $token"
+                  'Accept' = 'application/vnd.github.v3+json'
+              }
+              $response = Invoke-RestMethod -Uri 'https://api.github.com/user' -Headers $headers -Method Get
+              Write-Host "✓ GitHub PAT is valid and active"
+              return $true
+          }
+          catch {
+              $statusCode = $_.Exception.Response.StatusCode.value__
+              switch ($statusCode) {
+                  401 { Write-Host "##vso[task.logissue type=error]GitHub PAT is invalid or expired" }
+                  403 { Write-Host "##vso[task.logissue type=error]GitHub PAT lacks required permissions" }
+                  default { Write-Host "##vso[task.logissue type=error]GitHub PAT validation failed: $_" }
+              }
+              return $false
+          }
+      }
+      
+      # Function to validate Azure DevOps PAT
+      function Test-AzureDevOpsPAT {
+          param($token)
+          try {
+              $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$token"))
+              $headers = @{
+                  'Authorization' = "Basic $base64AuthInfo"
+                  'Accept' = 'application/json'
+              }
+              # Using Azure DevOps REST API to validate token
+              $org = "g9tm" # Your organization name
+              $response = Invoke-RestMethod -Uri "https://dev.azure.com/$org/_apis/projects?api-version=6.0" -Headers $headers -Method Get
+              Write-Host "✓ Azure DevOps PAT is valid and active"
+              return $true
+          }
+          catch {
+              $statusCode = $_.Exception.Response.StatusCode.value__
+              switch ($statusCode) {
+                  401 { Write-Host "##vso[task.logissue type=error]Azure DevOps PAT is invalid or expired" }
+                  403 { Write-Host "##vso[task.logissue type=error]Azure DevOps PAT lacks required permissions" }
+                  default { Write-Host "##vso[task.logissue type=error]Azure DevOps PAT validation failed: $_" }
+              }
+              return $false
+          }
+      }
+      
+      # Function to validate NuGet API Key
+      function Test-NuGetApiKey {
+          param($apiKey)
+          try {
+              $headers = @{
+                  'X-NuGet-ApiKey' = $apiKey
+                  'Accept' = 'application/json'
+              }
+              # Verify API key using NuGet API
+              $response = Invoke-RestMethod -Uri 'https://api.nuget.org/v3/index.json' -Headers $headers -Method Get
+              
+              # Additional validation by attempting to query package metadata
+              $verifyUrl = 'https://api.nuget.org/v3-flatcontainer/newtonsoft.json/13.0.1/newtonsoft.json.nuspec'
+              $response = Invoke-RestMethod -Uri $verifyUrl -Headers $headers -Method Get
+              
+              Write-Host "✓ NuGet API Key is valid and active"
+              return $true
+          }
+          catch {
+              $statusCode = $_.Exception.Response.StatusCode.value__
+              switch ($statusCode) {
+                  401 { Write-Host "##vso[task.logissue type=error]NuGet API Key is invalid or expired" }
+                  403 { Write-Host "##vso[task.logissue type=error]NuGet API Key lacks required permissions" }
+                  default { Write-Host "##vso[task.logissue type=error]NuGet API Key validation failed: $_" }
+              }
+              return $false
+          }
+      }
+      
+      Write-Host "`nValidating GitHub PAT..."
+      if (-not (Test-GitHubPAT -token "$(Github.PAT)")) {
+          $hasError = $true
+      }
+      
+      Write-Host "`nValidating Azure DevOps PAT..."
+      if (-not (Test-AzureDevOpsPAT -token "$(AzureDevOps.PAT)")) {
+          $hasError = $true
+      }
+      
+      Write-Host "`nValidating NuGet API Key..."
+      if (-not (Test-NuGetApiKey -apiKey "$(NuGetApiKey)")) {
+          $hasError = $true
+      }
+      
+      if ($hasError) {
+          Write-Host "##vso[task.complete result=Failed;]One or more API keys failed validation"
+          throw "API key validation failed. Please check the logs above for specific errors."
+      }
+      else {
+          Write-Host "`n✓ All API keys are valid and active"
+      }
 
 # Install NuGet tool
 - task: NuGetToolInstaller@1
