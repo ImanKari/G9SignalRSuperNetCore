@@ -6,9 +6,9 @@
 		<Nullable>enable</Nullable>
 
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-		<Version>1.0.0.7</Version>
-		<AssemblyVersion>1.0.0.7</AssemblyVersion>
-		<FileVersion>1.0.0.7</FileVersion>
+		<Version>1.0.0.8</Version>
+		<AssemblyVersion>1.0.0.8</AssemblyVersion>
+		<FileVersion>1.0.0.8</FileVersion>
 		<ApplicationIcon></ApplicationIcon>
 		<PackageIcon>G9-Icon.png</PackageIcon>
 		<PackageLicenseFile>LICENSE.md</PackageLicenseFile>

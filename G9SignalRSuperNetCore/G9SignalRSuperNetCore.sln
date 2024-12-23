@@ -18,6 +18,9 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "G9SignalRSuperNetCore.Server.ClientResourceGenerator", "G9SignalRSuperNetCore.Server.ClientResourceGenerator\G9SignalRSuperNetCore.Server.ClientResourceGenerator.csproj", "{91C1B556-7CA5-43FD-A6D9-DEE2133847BC}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "G9SignalRSuperNetCore.Server.ClientInterfaceGenerator", "G9SignalRSuperNetCore.Server.ClientInterfaceGenerator\G9SignalRSuperNetCore.Server.ClientInterfaceGenerator.csproj", "{9A371796-007A-4B7F-B318-1270B18624A9}"
+	ProjectSection(ProjectDependencies) = postProject
+		{91C1B556-7CA5-43FD-A6D9-DEE2133847BC} = {91C1B556-7CA5-43FD-A6D9-DEE2133847BC}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -23,13 +23,8 @@
 		</PackageReference>
 	</ItemGroup>
 
-	<UsingTask
-		TaskName="G9HubClientGeneratorTask"
-		AssemblyFile="$(OutputPath)ClientResourceGenerator\G9SignalRSuperNetCore.Server.ClientResourceGenerator.dll"
-		TaskFactory="TaskHostFactory" />
+	<!-- For testing nuget package -->
+	<Import Project="..\G9SignalRSuperNetCore.Server.ClientInterfaceGenerator\buildTransitive\G9SignalRSuperNetCore.Server.ClientInterfaceGenerator.targets" />
 
-	<Target Name="GenerateClientHelpers" AfterTargets="Build">
-		<G9HubClientGeneratorTask InputDirectory="$(MSBuildProjectDirectory)" OutputFile="$(MSBuildProjectDirectory)\GeneratedClientHelpers.txt" />
-	</Target>
 
 </Project>

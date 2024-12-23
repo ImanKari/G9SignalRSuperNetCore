@@ -20,4 +20,28 @@
 		<PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.12.6" />
 	</ItemGroup>
 
+	<!-- After-Build Target -->
+	<Target Name="CopyDllsAfterBuild" AfterTargets="Build">
+		<ItemGroup>
+			<!-- Define DLLs to Copy -->
+			<DllsToCopy Include="$(OutputPath)G9SignalRSuperNetCore.Server.ClientResourceGenerator.dll" />
+			<DllsToCopy Include="$(OutputPath)Microsoft.CodeAnalysis.dll" />
+			<DllsToCopy Include="$(OutputPath)Microsoft.CodeAnalysis.CSharp.dll" />
+		</ItemGroup>
+
+		<PropertyGroup>
+			<!-- Define Destination Path -->
+			<DestinationPath>..\G9SignalRSuperNetCore.Server.ClientInterfaceGenerator\buildTransitive\ClientResourceGenerator\</DestinationPath>
+		</PropertyGroup>
+
+		<!-- Copy Files -->
+		<Copy
+			SourceFiles="@(DllsToCopy)"
+			DestinationFolder="$(DestinationPath)"
+			SkipUnchangedFiles="true" />
+
+		<!-- Log the Operation -->
+		<Message Importance="High" Text="Copied DLLs to $(DestinationPath)" />
+	</Target>
+
 </Project>
