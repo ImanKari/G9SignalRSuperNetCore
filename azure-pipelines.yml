@@ -35,14 +35,6 @@ steps:
   inputs:
     restoreSolution: '${{ parameters.solutionPath }}'
 
-# - task: VSBuild@1
-#   displayName: Build Client Resource Generator
-#   inputs:
-#     solution: 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Server.ClientResourceGenerator/G9SignalRSuperNetCore.Server.ClientResourceGenerator.csproj'
-#     msbuildArgs: '/p:Configuration=$(buildConfiguration) /p:TargetFramework=netstandard2.0 /p:CopyLocalLockFileAssemblies=true'
-#     platform: '$(buildPlatform)'
-#     configuration: '$(buildConfiguration)'
-
 # Build the solution
 - task: VSBuild@1
   inputs:
