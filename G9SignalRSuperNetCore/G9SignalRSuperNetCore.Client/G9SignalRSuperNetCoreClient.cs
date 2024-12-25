@@ -28,7 +28,7 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
     /// <summary>
     ///     The underlying SignalR <see cref="HubConnection" /> used to communicate with the server.
     /// </summary>
-    public HubConnection Connection { protected internal set; get; }
+    public HubConnection Connection { protected internal set; get; } = null!;
 
     private TServerHubMethods? _server;
 

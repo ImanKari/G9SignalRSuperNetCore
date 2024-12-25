@@ -60,7 +60,7 @@ public class G9HubClientGeneratorTask : Task
                     // Extract the TClientSideMethodsInterface generic argument.
                     var clientInterface = ExtractClientInterface(hubClass);
 
-                    // Extract methods annotated with G9AttrMapMethodForClient.
+                    // Extract methods not annotated with G9AttrExcludeFromClientGenerationAttribute.
                     var serverMethods = ExtractAnnotatedMethods(hubClass);
 
                     // Generate the helper code for the current hub class.
@@ -83,7 +83,7 @@ public class G9HubClientGeneratorTask : Task
         finally
         {
             // Force garbage collection to help release file locks
-            for (int i = 0; i < GC.MaxGeneration; i++)
+            for (var i = 0; i < GC.MaxGeneration; i++)
             {
                 GC.Collect(i, GCCollectionMode.Forced);
                 GC.WaitForPendingFinalizers();
@@ -112,19 +112,35 @@ public class G9HubClientGeneratorTask : Task
     }
 
     /// <summary>
-    ///     Extracts methods from a class that are annotated with the G9AttrMapMethodForClient attribute.
+    ///     Extracts methods from a class that are **not** annotated with the
+    ///     G9AttrExcludeFromClientGenerationAttribute attribute.
     /// </summary>
     /// <param name="cls">The class declaration syntax to process.</param>
-    /// <returns>Returns a list of method declarations annotated with G9AttrMapMethodForClient.</returns>
+    /// <returns>Returns a list of methods not annotated with G9AttrExcludeFromClientGenerationAttribute.</returns>
     private List<MethodDeclarationSyntax> ExtractAnnotatedMethods(ClassDeclarationSyntax cls)
     {
+        var excludedMethodNames = new HashSet<string>
+        {
+            "RoutePattern",
+            "ValidateUserAndGenerateJWToken",
+            "GetAuthorizeTokenValidationForHub",
+            "ConfigureHub",
+            "ConfigureHubOption",
+            "ConfigureHubForJWTRoute",
+            "AuthAndGetJWTRoutePattern",
+            "OnConnectedAsyncNext",
+            "OnDisconnectedAsyncNext"
+        };
+
         return cls.Members
             .OfType<MethodDeclarationSyntax>()
-            .Where(m => m.AttributeLists
-                .SelectMany(al => al.Attributes)
-                .Any(attr => attr.Name.ToString() == "G9AttrMapMethodForClient"))
+            .Where(m => !m.AttributeLists.SelectMany(al => al.Attributes)
+                            .Any(attr => attr.Name.ToString() == "G9AttrExcludeFromClientGeneration" ||
+                                         attr.Name.ToString() == "G9AttrExcludeFromClientGenerationAttribute") &&
+                        !excludedMethodNames.Contains(m.Identifier.Text))
             .ToList();
     }
+
 
     /// <summary>
     ///     Generates the client-side helper code, including interfaces and client classes.
@@ -137,9 +153,9 @@ public class G9HubClientGeneratorTask : Task
     private string GenerateCode(string className, string clientInterface, List<MethodDeclarationSyntax> serverMethods,
         ClassDeclarationSyntax hubClass)
     {
-        var methodsInterface = $"G9I{className}Methods";
-        var listenersInterface = $"G9I{className}Listeners";
-        var clientClass = $"G9C{className}Client";
+        var methodsInterface = $"I{className}Methods";
+        var listenersInterface = $"I{className}Listeners";
+        var clientClass = $"{className}Client";
 
         // Determine the base type and adjust structure based on inheritance
         var isJwtAuthHub = hubClass.BaseList.Types
@@ -169,7 +185,7 @@ public class G9HubClientGeneratorTask : Task
             ? $"G9SignalRSuperNetCoreClientWithJWTAuth<{clientClass}, {methodsInterface}, {listenersInterface}>"
             : $"G9SignalRSuperNetCoreClient<{clientClass}, {methodsInterface}, {listenersInterface}>";
 
-        var authParameter = isJwtAuthHub || isSessionAndJwtAuthHub 
+        var authParameter = isJwtAuthHub || isSessionAndJwtAuthHub
             ? ", string? jwToken = null,\r\n\tFunc<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,\r\n\tFunc<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilderForAuthServer = null,\r\n\tAction<HttpConnectionOptions>? configureHttpConnection = null,\r\n\tAction<HttpConnectionOptions>? configureHttpConnectionForAuthServer = null"
             : ",\r\n        Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,\r\n        Action<HttpConnectionOptions>? configureHttpConnection = null";
 
@@ -227,7 +243,6 @@ public class {clientClass} : {baseClass}, {listenersInterface}
     }}
 }}";
     }
-
 
 
     /// <summary>
@@ -394,7 +409,8 @@ public class {clientClass} : {baseClass}, {listenersInterface}
     {
         var authRouteMethod = hubClass.Members
             .OfType<MethodDeclarationSyntax>()
-            .FirstOrDefault(m => m.Identifier.Text == "AuthAndGetJWTRoutePattern" && m.ParameterList.Parameters.Count == 0);
+            .FirstOrDefault(m =>
+                m.Identifier.Text == "AuthAndGetJWTRoutePattern" && m.ParameterList.Parameters.Count == 0);
 
         if (authRouteMethod == null) return defaultRoute;
 
@@ -408,5 +424,4 @@ public class {clientClass} : {baseClass}, {listenersInterface}
 
         return defaultRoute;
     }
-
 }

@@ -4,6 +4,7 @@ using G9SignalRSuperNetCore.Server.Classes.Helper;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using G9SignalRSuperNetCore.Server.Enums;
+using Microsoft.AspNetCore.SignalR;
 
 namespace G9SignalRSuperNetCore.WebServer;
 
@@ -16,6 +17,7 @@ public class CustomHubWithJWTAuthAndSession : G9AHubBaseWithSessionAndJWTAuth<Cu
     {
         _logger = logger;
     }
+
     public override string RoutePattern()
     {
         return "/SecureHub";
@@ -50,7 +52,6 @@ public class CustomHubWithJWTAuthAndSession : G9AHubBaseWithSessionAndJWTAuth<Cu
     /// </summary>
     /// <param name="userName">user Name</param>
     /// <param name="password">Password</param>
-    [G9AttrMapMethodForClient]
     public async Task Login(string userName, string password)
     {
         await Clients.Caller.LoginResult(true);
@@ -60,8 +61,15 @@ public class CustomHubWithJWTAuthAndSession : G9AHubBaseWithSessionAndJWTAuth<Cu
     ///     Replay
     /// </summary>
     /// <param name="message">Okay</param>
-    [G9AttrMapMethodForClient]
     public async Task Replay(string message)
+    {
+        var user = Context.User;
+        Console.WriteLine(Context.ConnectionId);
+        await Clients.Caller.Replay(message);
+    }
+
+    [HubMethodName(null!)]
+    public async Task Replay2(string message)
     {
         var user = Context.User;
         Console.WriteLine(Context.ConnectionId);

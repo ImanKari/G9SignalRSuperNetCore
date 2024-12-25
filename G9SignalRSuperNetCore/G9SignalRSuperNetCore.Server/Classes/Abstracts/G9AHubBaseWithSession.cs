@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using G9SignalRSuperNetCore.Server.Classes.Attributes;
 using Microsoft.AspNetCore.SignalR;
 
 namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
@@ -41,10 +42,11 @@ public abstract class G9AHubBaseWithSession<TTargetClass, TClientSideMethodsInte
     {
         get
         {
-            if (string.IsNullOrEmpty(_sessionUniqueIdentifier)) return default; 
+            if (string.IsNullOrEmpty(_sessionUniqueIdentifier)) return default;
 
             // Retrieve the session for the current caller
-            if (_userConnectionCounts.TryGetValue(_sessionUniqueIdentifier, out var session) && session is TSession callerSession)
+            if (_userConnectionCounts.TryGetValue(_sessionUniqueIdentifier, out var session) &&
+                session is TSession callerSession)
                 return callerSession;
 
             return default;
@@ -59,10 +61,10 @@ public abstract class G9AHubBaseWithSession<TTargetClass, TClientSideMethodsInte
     ///     Called when a client connects to the hub.
     ///     Manages session creation and connection count updates.
     /// </summary>
+    [HubMethodName(null)]
+    [G9AttrExcludeFromClientGeneration]
     public sealed override async Task OnConnectedAsync()
     {
-        
-
         if (string.IsNullOrEmpty(_sessionUniqueIdentifier)) return;
 
         var httpContext = Context.GetHttpContext();
@@ -71,7 +73,7 @@ public abstract class G9AHubBaseWithSession<TTargetClass, TClientSideMethodsInte
             // Factory to create a new G9ASession if the userId doesn't exist
             _ => new TSession
             {
-                ClientIpAddress = httpContext?.Connection?.RemoteIpAddress,
+                ClientIpAddress = httpContext?.Connection.RemoteIpAddress,
                 ConnectionCounts = 1
             },
             // Factory to update an existing G9ASession
@@ -89,6 +91,8 @@ public abstract class G9AHubBaseWithSession<TTargetClass, TClientSideMethodsInte
     ///     Optional method to perform additional tasks after a client connects.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    [HubMethodName(null)]
+    [G9AttrExcludeFromClientGeneration]
     public virtual Task OnConnectedAsyncNext()
     {
         return Task.CompletedTask;
@@ -99,9 +103,10 @@ public abstract class G9AHubBaseWithSession<TTargetClass, TClientSideMethodsInte
     ///     Manages session cleanup and connection count updates.
     /// </summary>
     /// <param name="exception">The exception that caused the disconnect, if any.</param>
+    [HubMethodName(null)]
+    [G9AttrExcludeFromClientGeneration]
     public sealed override async Task OnDisconnectedAsync(Exception? exception)
     {
-        
         if (!string.IsNullOrEmpty(_sessionUniqueIdentifier))
         {
             _userConnectionCounts.AddOrUpdate(
@@ -112,14 +117,15 @@ public abstract class G9AHubBaseWithSession<TTargetClass, TClientSideMethodsInte
                     ConnectionCounts = 0
                 },
                 // Update existing session
-                (_, session) =>
+                (_, _session) =>
                 {
-                    session.ConnectionCounts = Math.Max(0, session.ConnectionCounts - 1);
-                    return session;
+                    _session.ConnectionCounts = Math.Max(0, _session.ConnectionCounts - 1);
+                    return _session;
                 });
 
             // Remove the user entry if ConnectionCounts reaches zero
-            if (_userConnectionCounts.TryGetValue(_sessionUniqueIdentifier, out var session) && session.ConnectionCounts == 0)
+            if (_userConnectionCounts.TryGetValue(_sessionUniqueIdentifier, out var session) &&
+                session.ConnectionCounts == 0)
                 _userConnectionCounts.TryRemove(_sessionUniqueIdentifier, out _);
         }
 
@@ -132,6 +138,8 @@ public abstract class G9AHubBaseWithSession<TTargetClass, TClientSideMethodsInte
     /// </summary>
     /// <param name="exception">The exception that caused the disconnect, if any.</param>
     /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    [HubMethodName(null)]
+    [G9AttrExcludeFromClientGeneration]
     public virtual Task OnDisconnectedAsyncNext(Exception? exception)
     {
         return Task.CompletedTask;
@@ -142,6 +150,8 @@ public abstract class G9AHubBaseWithSession<TTargetClass, TClientSideMethodsInte
     /// </summary>
     /// <param name="userId">The unique user identifier.</param>
     /// <returns>True if the user is connected; otherwise, false.</returns>
+    [HubMethodName(null)]
+    [G9AttrExcludeFromClientGeneration]
     public bool IsUserConnected(string userId)
     {
         return _userConnectionCounts.ContainsKey(userId);

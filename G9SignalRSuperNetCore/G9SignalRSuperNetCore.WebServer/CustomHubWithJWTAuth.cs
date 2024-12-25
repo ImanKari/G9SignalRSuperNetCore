@@ -43,7 +43,6 @@ public class CustomHubWithJWTAuth : G9AHubBaseWithJWTAuth<CustomHubWithJWTAuth, 
     /// </summary>
     /// <param name="userName">user Name</param>
     /// <param name="password">Password</param>
-    [G9AttrMapMethodForClient]
     public async Task Login(string userName, string password)
     {
         await Clients.Caller.LoginResult(true);
@@ -53,7 +52,6 @@ public class CustomHubWithJWTAuth : G9AHubBaseWithJWTAuth<CustomHubWithJWTAuth, 
     ///     Replay
     /// </summary>
     /// <param name="message">Okay</param>
-    [G9AttrMapMethodForClient]
     public async Task Replay(string message)
     {
         var user = Context.User;

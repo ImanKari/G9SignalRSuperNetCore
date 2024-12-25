@@ -78,6 +78,7 @@ internal class Program
 
         await client.ConnectAsync(token);
         await client.Server.Login("Iman", "@ImanKari1990");
+        await client.Connection.SendCoreAsync("Replay2", new []{ "Hello" });
 
         client.AssignListenerEvent(
             s => s.Replay, (string param) =>
