@@ -1,4 +1,6 @@
-﻿namespace G9SignalRSuperNetCore.ConsoleClient;
+﻿using System.Diagnostics;
+
+namespace G9SignalRSuperNetCore.ConsoleClient;
 
 public interface MyInterface
 {
@@ -78,7 +80,14 @@ internal class Program
 
         await client.ConnectAsync(token);
         await client.Server.Login("Iman", "@ImanKari1990");
-        await client.Connection.SendCoreAsync("Replay2", new []{ "Hello" });
+        try
+        {
+            await client.Connection.SendCoreAsync("ValidateUserAndGenerateJWToken", new[] { "Hello" });
+        }
+        catch (Exception es)
+        {
+            Debug.WriteLine(es);
+        }
 
         client.AssignListenerEvent(
             s => s.Replay, (string param) =>

@@ -1,12 +1,15 @@
 ﻿using System.Security.Claims;
 using G9AssemblyManagement;
 using G9SignalRSuperNetCore.Server.Classes.Abstracts;
+using G9SignalRSuperNetCore.Server.Classes.Helper;
 using G9SignalRSuperNetCore.Server.Classes.Hubs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 
 namespace G9SignalRSuperNetCore.Server;
 
@@ -15,6 +18,29 @@ namespace G9SignalRSuperNetCore.Server;
 /// </summary>
 public static class G9SignalRSuperNetCoreServer
 {
+    /// <summary>
+    ///     Flag to track if the basic services (such as custom <see cref="IUserIdProvider" /> and authorization setup) have
+    ///     been added.
+    ///     This ensures that the basic services are only registered once in the dependency injection container.
+    /// </summary>
+    private static bool _addBasicService;
+
+    /// <summary>
+    ///     Flag to track if JWT Bearer authentication has been added.
+    ///     This ensures that JWT authentication is only registered once, even if multiple hubs are configured.
+    /// </summary>
+    private static bool _addJwtService;
+
+    /// <summary>
+    ///     A dictionary to store token validation parameters for different SignalR hub paths.
+    ///     The key is the <see cref="string" /> hub path, and the value is the associated
+    ///     <see cref="TokenValidationParameters" />.
+    ///     This allows for different token validation configurations for each SignalR hub, enabling support for multiple hubs
+    ///     with different authentication schemes or routes.
+    /// </summary>
+    private static readonly Dictionary<string, TokenValidationParameters> HubTokenValidationParameters = new();
+
+
     /// <summary>
     ///     Adds the SignalR SuperNetCore server services to the dependency injection container.
     /// </summary>
@@ -41,62 +67,74 @@ public static class G9SignalRSuperNetCoreServer
     {
         var targetClass = G9Assembly.InstanceTools.CreateUninitializedInstanceFromType<TTargetClass>();
 
-        // Configure custom UserIdProvider
-        services.AddSingleton<IUserIdProvider, G9CUserIdProvider>(_ => new G9CUserIdProvider(userIdentifier));
-
-        if (targetClass is G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface> withJwtAuth)
+        if (!_addBasicService)
         {
+            _addBasicService = true;
+            // Configure custom UserIdProvider
+            services.AddSingleton<IUserIdProvider, G9CUserIdProvider>(_ => new G9CUserIdProvider(userIdentifier));
+
+            services.AddAuthorization(options =>
+            {
+                options.AddPolicy(G9CAlwaysDenyRequirement.DenyPolicyName,
+                    policy => { policy.Requirements.Add(new G9CAlwaysDenyRequirement()); });
+            });
+
+            services.AddSingleton<IAuthorizationHandler, G9CAlwaysDenyHandler>();
+        }
+
+        // Handle JWT Authentication only once
+        if (targetClass is G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface> withJwtAuth &&
+            !_addJwtService)
+        {
+            _addJwtService = true;
+
             var auth = withJwtAuth.GetAuthorizeTokenValidationForHub();
             var hubPath = withJwtAuth.RoutePattern();
 
+            // Store the hub path and its corresponding authentication configuration
+            HubTokenValidationParameters[hubPath] = auth;
+
+            // Add JWT Bearer Authentication
             services.AddAuthentication("Bearer")
                 .AddJwtBearer("Bearer", options =>
                 {
-                    options.TokenValidationParameters = auth;
-
-                    // Allow token from query string (for SignalR WebSocket connections)
                     options.Events = new JwtBearerEvents
                     {
                         OnMessageReceived = context =>
                         {
                             var accessToken = context.Request.Query["access_token"];
 
-                            // If the request is for the hub endpoint, extract token
-                            var path = context.HttpContext.Request.Path;
-                            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments(hubPath))
-                                context.Token = accessToken;
+                            // Check if the request is for one of the hubs
+                            foreach (var path in HubTokenValidationParameters.Keys.Where(path =>
+                                         context.HttpContext.Request.Path.StartsWithSegments(path)))
+                            {
+                                // Assign the appropriate token validation parameters based on the hub path
+                                options.TokenValidationParameters = HubTokenValidationParameters[path];
+
+                                if (!string.IsNullOrEmpty(accessToken)) context.Token = accessToken;
+
+                                break;
+                            }
+
                             return Task.CompletedTask;
                         }
                     };
                 });
 
+            // Add authorization services if not already done
             services.AddAuthorization();
-
-
-            // Add and configure SignalR options
-            services.AddSignalR(option =>
-            {
-                //option.MaximumReceiveMessageSize = 200 * 1024 * 1024; // Set maximum message size to 200MB
-                option.KeepAliveInterval = TimeSpan.FromSeconds(10); // Ping clients every 10 seconds
-                option.ClientTimeoutInterval = TimeSpan.FromSeconds(60); // Set client timeout to 60 seconds
-
-                // Allow the target class to customize SignalR options
-                targetClass.ConfigureHubOption(option);
-            });
         }
-        else
+
+        // Add and configure SignalR options
+        services.AddSignalR(option =>
         {
-            // Add and configure SignalR options
-            services.AddSignalR(option =>
-            {
-                //option.MaximumReceiveMessageSize = 200 * 1024 * 1024; // Set maximum message size to 200MB
-                option.KeepAliveInterval = TimeSpan.FromSeconds(10); // Ping clients every 10 seconds
-                option.ClientTimeoutInterval = TimeSpan.FromSeconds(60); // Set client timeout to 60 seconds
+            // Set general SignalR options (message size, timeouts, etc.)
+            option.KeepAliveInterval = TimeSpan.FromSeconds(10); // Ping clients every 10 seconds
+            option.ClientTimeoutInterval = TimeSpan.FromSeconds(60); // Set client timeout to 60 seconds
 
-                // Allow the target class to customize SignalR options
-                targetClass.ConfigureHubOption(option);
-            });
-        }
+            // Allow the target class to customize SignalR options
+            targetClass.ConfigureHubOption(option);
+        });
     }
 
     /// <summary>
@@ -131,14 +169,13 @@ public static class G9SignalRSuperNetCoreServer
             var jwtRoutePattern = withJwtAuth.AuthAndGetJWTRoutePattern();
             if (!G9GetJwtHub._validateUserAndGenerateJWTokenPerRoute.ContainsKey(jwtRoutePattern))
                 _ = G9GetJwtHub._validateUserAndGenerateJWTokenPerRoute.TryAdd(jwtRoutePattern,
-                    withJwtAuth.ValidateUserAndGenerateJWToken);
+                    withJwtAuth.AuthenticateAndGenerateJwtTokenAsync);
 
             app.MapHub<G9GetJwtHub>(jwtRoutePattern, withJwtAuth.ConfigureHubForJWTRoute);
 
 
             // Map the Hub to its defined route and apply configurations
             app.MapHub<TTargetClass>(withJwtAuth.RoutePattern(), withJwtAuth.ConfigureHub).RequireAuthorization();
-
         }
         else
         {

@@ -4,6 +4,7 @@ using G9SignalRSuperNetCore.Server.Classes.Helper;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using G9SignalRSuperNetCore.Server.Enums;
+using Microsoft.AspNetCore.SignalR;
 
 namespace G9SignalRSuperNetCore.WebServer;
 
@@ -24,7 +25,8 @@ public class CustomHubWithJWTAuth : G9AHubBaseWithJWTAuth<CustomHubWithJWTAuth, 
     private static readonly G9JWTokenFactory jwToken =
         G9JWTokenFactory.GenerateJWTToken(JWTokenSecretKey, "Meti", "admin", "G9TM", "G9TM", DateTime.Now.AddDays(3), G9ESecurityAlgorithms.HmacSha256);
 
-    public override Task<G9JWTokenFactory> ValidateUserAndGenerateJWToken(object authorizeData)
+    public override Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(object authorizeData,
+        Hub accessToUnauthorizedVirtualHub)
     {
         if (authorizeData.ToString() ==
             "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$")

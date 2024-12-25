@@ -1,4 +1,5 @@
 ﻿using G9SignalRSuperNetCore.Server.Classes.Attributes;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR;
 
@@ -40,7 +41,7 @@ public abstract class G9AHubBase<TTargetClass, TClientSideMethodsInterface> : Hu
     /// <remarks>
     ///     This method can be overridden to customize the behavior of HTTP connections.
     /// </remarks>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
     public virtual void ConfigureHub(HttpConnectionDispatcherOptions configureOptions)
     {
@@ -55,7 +56,7 @@ public abstract class G9AHubBase<TTargetClass, TClientSideMethodsInterface> : Hu
     /// <remarks>
     ///     Override this method to define Hub-specific options such as client timeouts or message size limits.
     /// </remarks>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
     public virtual void ConfigureHubOption(HubOptions configure)
     {
@@ -70,7 +71,7 @@ public abstract class G9AHubBase<TTargetClass, TClientSideMethodsInterface> : Hu
     /// <remarks>
     ///     This method must be implemented in the derived class to define a unique route for the Hub.
     /// </remarks>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
     public abstract string RoutePattern();
 

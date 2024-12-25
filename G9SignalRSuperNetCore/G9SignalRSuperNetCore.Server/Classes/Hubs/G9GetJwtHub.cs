@@ -6,7 +6,7 @@ namespace G9SignalRSuperNetCore.Server.Classes.Hubs;
 
 public class G9GetJwtHub : Hub
 {
-    internal static ConcurrentDictionary<string, Func<object, Task<G9JWTokenFactory>>>
+    internal static ConcurrentDictionary<string, Func<object, Hub, Task<G9JWTokenFactory>>>
         _validateUserAndGenerateJWTokenPerRoute = [];
 
     public async Task Authorize(object authorizeData)
@@ -14,7 +14,7 @@ public class G9GetJwtHub : Hub
         var routePattern = Context.GetHttpContext()?.Request.Path;
         if (_validateUserAndGenerateJWTokenPerRoute.TryGetValue(routePattern, out var func))
         {
-            var result = await func(authorizeData);
+            var result = await func(authorizeData, this);
             if (result.IsRejected)
                 await Clients.Caller.SendCoreAsync("AuthorizeResult", [false, result.RejectionReason, null]);
             else

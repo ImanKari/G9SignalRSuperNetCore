@@ -76,6 +76,7 @@ public class CustomHubClient : G9SignalRSuperNetCoreClient<CustomHubClient, ICus
 /// </summary>
 public interface ICustomHubWithJWTAuthMethodsWithJWTAuth
 {
+    Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(object authorizeData, Hub accessToUnauthorizedVirtualHub);
     /// <summary>
     /// Information
     /// </summary>
@@ -145,6 +146,7 @@ public class CustomHubWithJWTAuthClientWithJWTAuth : G9SignalRSuperNetCoreClient
 /// </summary>
 public interface ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth
 {
+    Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(object authorizeData, Hub accessToUnauthorizedVirtualHub);
     /// <summary>
     /// Information
     /// </summary>
@@ -158,7 +160,6 @@ public interface ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth
     /// <param name="message">Okay</param>
 
     Task Replay(string message);
-    Task Replay2(string message);
 
 }
 

@@ -46,7 +46,7 @@ public abstract class
     ///     For example, you can configure connection timeouts, transport methods, or other specific settings that
     ///     apply when JWT authentication is enabled for the Hub.
     /// </remarks>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
     public virtual void ConfigureHubForJWTRoute(HttpConnectionDispatcherOptions configureOptions)
     {
@@ -67,29 +67,40 @@ public abstract class
     ///     The route is used to define the URL path at which clients can request their JWT token, typically as
     ///     part of an authentication process.
     /// </remarks>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
     public abstract string AuthAndGetJWTRoutePattern();
 
     /// <summary>
     ///     Validates the user credentials and generates a JWT token. This method is responsible for ensuring
-    ///     the provided credentials are valid and issuing a JWT token for authenticated clients.
+    ///     the provided credentials are valid and issuing a JWT token for authenticated clients. Although defined in
+    ///     the authorization hub, this method is called by a virtual hub that handles authentication checking.
     /// </summary>
     /// <param name="authorizeData">
     ///     The data containing the user credentials (such as username and password or other forms of data required for
-    ///     authorization).
+    ///     authorization). This parameter is used to verify the identity and permissions of the user making the request.
+    /// </param>
+    /// <param name="accessToUnauthorizedVirtualHub">
+    ///     The instance of the virtual hub from which this method is called. Although this method is defined in the
+    ///     authorization hub, it is invoked by a virtual hub. The parameter provides access to hub-specific data like
+    ///     the context of the hub, connection details, and other services. It allows you to access and manipulate
+    ///     the connection state or other hub-related information during the authentication process.
     /// </param>
     /// <returns>
     ///     A <see cref="Task{G9JWTokenFactory}" /> representing the asynchronous operation. The task result is a
-    ///     <see cref="G9JWTokenFactory" /> which contains the generated JWT token.
+    ///     <see cref="G9JWTokenFactory" /> that contains the generated JWT token if authentication is successful.
     /// </returns>
     /// <remarks>
-    ///     This method needs to be overridden by the derived class to implement custom user validation logic
-    ///     and token generation (e.g., using a database or external authentication service).
+    ///     This method must be overridden in derived classes to implement custom user validation logic and token
+    ///     generation (e.g., using a database or external authentication service). Since this method is invoked by
+    ///     a virtual hub, it cannot use a non-static body, as doing so will result in an exception. It should be
+    ///     designed to handle authentication and token generation in a static context, to be compatible with the
+    ///     library's core authentication process.
     /// </remarks>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
-    public abstract Task<G9JWTokenFactory> ValidateUserAndGenerateJWToken(object authorizeData);
+    public abstract Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(object authorizeData,
+        Hub accessToUnauthorizedVirtualHub);
 
     /// <summary>
     ///     Retrieves the token validation parameters for validating JWT tokens used in this Hub.
@@ -101,7 +112,7 @@ public abstract class
     ///     This method is used to configure the validation parameters for the JWT token, such as the issuer,
     ///     audience, signing key, and other aspects of token validation.
     /// </remarks>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
     public abstract TokenValidationParameters GetAuthorizeTokenValidationForHub();
 

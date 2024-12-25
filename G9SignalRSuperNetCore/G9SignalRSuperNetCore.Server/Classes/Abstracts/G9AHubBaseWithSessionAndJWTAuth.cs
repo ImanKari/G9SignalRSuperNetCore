@@ -63,7 +63,7 @@ public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideM
     ///     Called when a client connects to the hub.
     ///     Manages session creation and connection count updates.
     /// </summary>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
     public sealed override async Task OnConnectedAsync()
     {
@@ -93,7 +93,7 @@ public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideM
     ///     Optional method to perform additional tasks after a client connects.
     /// </summary>
     /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
     public virtual Task OnConnectedAsyncNext()
     {
@@ -105,7 +105,7 @@ public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideM
     ///     Manages session cleanup and connection count updates.
     /// </summary>
     /// <param name="exception">The exception that caused the disconnect, if any.</param>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
     public sealed override async Task OnDisconnectedAsync(Exception? exception)
     {
@@ -140,7 +140,7 @@ public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideM
     /// </summary>
     /// <param name="exception">The exception that caused the disconnect, if any.</param>
     /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
     public virtual Task OnDisconnectedAsyncNext(Exception? exception)
     {
@@ -152,7 +152,7 @@ public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideM
     /// </summary>
     /// <param name="userId">The unique user identifier.</param>
     /// <returns>True if the user is connected; otherwise, false.</returns>
-    [HubMethodName(null)]
+    [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
     public bool IsUserConnected(string userId)
     {
