@@ -30,4 +30,15 @@ public class CustomHub : G9AHubBase<CustomHub, CustomClientInterface>
         Console.WriteLine(Context.ConnectionId);
         await Clients.Caller.Replay(message);
     }
+
+
+    private async Task Method1(string message)
+    {
+        await Task.CompletedTask;
+    }
+
+    protected async Task Method2(string message)
+    {
+        await Task.CompletedTask;
+    }
 }
