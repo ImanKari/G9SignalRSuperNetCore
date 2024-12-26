@@ -19,7 +19,7 @@ public class G9GetJwtHub : Hub
     /// <remarks>
     ///     The functions in this dictionary are responsible for handling different route-specific authorization logic.
     /// </remarks>
-    internal static ConcurrentDictionary<string, Func<dynamic, Hub, Task<G9JWTokenFactory>>>
+    internal static ConcurrentDictionary<string, Func<object, Hub, Task<G9JWTokenFactory>>>
         _validateUserAndGenerateJWTokenPerRoute = new();
 
     /// <summary>

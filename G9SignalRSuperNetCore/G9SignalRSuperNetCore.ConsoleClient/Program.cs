@@ -49,11 +49,7 @@ internal class Program
         var isAccepted = false;
         string authReason = null;
         await client.Authorize(
-            new CustomHubWithJWTAuthAndSessionCAuthenticationType()
-            {
-                Name =
-                    "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$"
-            },
+            "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$",
             (accept, reason, jwToken) =>
             {
                 isAccepted = accept;

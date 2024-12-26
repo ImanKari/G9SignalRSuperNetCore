@@ -13,31 +13,22 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 ///     to manage user authorization, JWT token generation, and token validation for the hub.
 ///     The derived classes must implement methods to handle user authentication, JWT token generation,
 ///     and token validation parameters.
-///
-///     This class also introduces a new generic type <typeparamref name="TAuthenticationDataType"/> 
-///     which specifies the type of the authentication data that is used for validating and generating JWT tokens.
 /// </summary>
 /// <typeparam name="TTargetClass">
-///     The derived Hub class inheriting from <see cref="G9AHubBaseWithJWTAuth{TTargetClass, TClientSideMethodsInterface, TAuthenticationDataType}" />.
+///     The derived Hub class inheriting from <see cref="G9AHubBaseWithJWTAuth{TTargetClass, TClientSideMethodsInterface}" />.
 /// </typeparam>
 /// <typeparam name="TClientSideMethodsInterface">
 ///     An interface that defines the client-side methods that can be called from the server.
-/// </typeparam>
-/// <typeparam name="TAuthenticationDataType">
-///     A class that defines the type of the authentication data used for user validation and JWT token generation.
-///     This type is passed into methods like <see cref="AuthenticateAndGenerateJwtTokenAsync"/> to provide the 
-///     necessary user credentials or other forms of data for authentication.
 /// </typeparam>
 /// <remarks>
 ///     The class is marked with the <see cref="AuthorizeAttribute" /> to enforce that authentication is required
 ///     for clients to connect and interact with the Hub.
 /// </remarks>
 [Authorize]
-public abstract class G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface, TAuthenticationDataType>
+public abstract class G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
     : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
     where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
     where TClientSideMethodsInterface : class
-    where TAuthenticationDataType : class
 {
     #region Methods
 
@@ -82,12 +73,12 @@ public abstract class G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInte
 
     /// <summary>
     ///     Validates the user credentials and generates a JWT token. This method is responsible for ensuring
-    ///     the provided credentials (of type <typeparamref name="TAuthenticationDataType" />) are valid and issuing
+    ///     the provided credentials (authorizeData) are valid and issuing
     ///     a JWT token for authenticated clients.
     /// </summary>
     /// <param name="authorizeData">
     ///     The data containing the user credentials (such as username, password, or other forms of data required for
-    ///     authorization). This parameter, of type <typeparamref name="TAuthenticationDataType" />, is used to verify 
+    ///     authorization). This parameter, of type object, is used to verify 
     ///     the identity and permissions of the user making the request.
     /// </param>
     /// <param name="accessToUnauthorizedVirtualHub">
@@ -100,14 +91,9 @@ public abstract class G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInte
     ///     A <see cref="Task{G9JWTokenFactory}" /> representing the asynchronous operation. The task result is a
     ///     <see cref="G9JWTokenFactory" /> that contains the generated JWT token if authentication is successful.
     /// </returns>
-    /// <remarks>
-    ///     This method must be overridden in derived classes to implement custom user validation logic and token generation (e.g., 
-    ///     using a database or external authentication service). The method accepts <typeparamref name="TAuthenticationDataType" />
-    ///     as the authentication data for validation and token creation.
-    /// </remarks>
     [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
-    public abstract Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(TAuthenticationDataType authorizeData,
+    public abstract Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(object authorizeData,
         Hub accessToUnauthorizedVirtualHub);
 
     /// <summary>

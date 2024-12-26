@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace G9SignalRSuperNetCore.WebServer;
 
-public class CustomHubWithJWTAuth : G9AHubBaseWithJWTAuth<CustomHubWithJWTAuth, CustomClientInterface, CAuthenticationType>
+public class CustomHubWithJWTAuth : G9AHubBaseWithJWTAuth<CustomHubWithJWTAuth, CustomClientInterface>
 {
     public override string RoutePattern()
     {
@@ -20,7 +20,7 @@ public class CustomHubWithJWTAuth : G9AHubBaseWithJWTAuth<CustomHubWithJWTAuth, 
         return "/AuthHub";
     }
 
-    public override Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(CAuthenticationType authorizeData, Hub accessToUnauthorizedVirtualHub)
+    public override Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(object authorizeData, Hub accessToUnauthorizedVirtualHub)
     {
         if (authorizeData.ToString() ==
             "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$")

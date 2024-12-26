@@ -11,7 +11,7 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 /// <typeparam name="TTargetClass">
 ///     The derived hub class inheriting from
 ///     <see
-///         cref="G9AHubBaseWithSessionAndJWTAuth{TTargetClass, TClientSideMethodsInterface, TAuthenticationDataType, TSession}" />
+///         cref="G9AHubBaseWithSessionAndJWTAuth{TTargetClass, TClientSideMethodsInterface, TSession}" />
 ///     .
 /// </typeparam>
 /// <typeparam name="TSession">
@@ -20,22 +20,16 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 /// <typeparam name="TClientSideMethodsInterface">
 ///     An interface that defines client-side methods which can be called from the server.
 /// </typeparam>
-/// <typeparam name="TAuthenticationDataType">
-///     The data type used for authentication (e.g., credentials, token information). This is a new generic type
-///     introduced to support flexible authentication methods.
-/// </typeparam>
 /// <remarks>
 ///     The class is marked with the <see cref="AuthorizeAttribute" /> to enforce that authentication is required
 ///     for clients to connect and interact with the Hub.
 /// </remarks>
 [Authorize]
-public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideMethodsInterface,
-    TAuthenticationDataType, TSession>
-    : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface, TAuthenticationDataType>
-    where TTargetClass : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface, TAuthenticationDataType>
+public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideMethodsInterface, TSession>
+    : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
+    where TTargetClass : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
     where TClientSideMethodsInterface : class
     where TSession : G9ASession, new()
-    where TAuthenticationDataType : class
 {
     #region Fields And Properties
 

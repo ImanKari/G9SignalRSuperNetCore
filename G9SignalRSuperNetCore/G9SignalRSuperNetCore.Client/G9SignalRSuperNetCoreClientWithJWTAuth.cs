@@ -7,7 +7,7 @@ namespace G9SignalRSuperNetCore.Client;
 ///     A SignalR client class that adds JWT (JSON Web Token) authentication capabilities.
 ///     This class extends the base
 ///     <see
-///         cref="G9SignalRSuperNetCoreClientWithJWTAuth{TTargetClass, TServerHubMethods, TClientListenerMethods, TAuthenticationDataType}" />
+///         cref="G9SignalRSuperNetCoreClientWithJWTAuth{TTargetClass, TServerHubMethods, TClientListenerMethods}" />
 ///     by allowing connections with JWT tokens for authentication before connecting to the server hub.
 /// </summary>
 /// <typeparam name="TTargetClass">
@@ -19,24 +19,18 @@ namespace G9SignalRSuperNetCore.Client;
 /// <typeparam name="TClientListenerMethods">
 ///     An interface that defines the methods which can be invoked by the server, typically server-to-client notifications.
 /// </typeparam>
-/// <typeparam name="TAuthenticationDataType">
-///     The type of data used for the authentication request, typically for sending user credentials or other
-///     authentication-related information to the authentication server.
-/// </typeparam>
-public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServerHubMethods, TClientListenerMethods,
-    TAuthenticationDataType> :
+public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServerHubMethods, TClientListenerMethods> :
     G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethods, TClientListenerMethods>
     where TTargetClass : G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethods, TClientListenerMethods>
     where TServerHubMethods : class
     where TClientListenerMethods : class
-    where TAuthenticationDataType : class
 {
     #region Constructor
 
     /// <summary>
     ///     Initializes a new instance of the
     ///     <see
-    ///         cref="G9SignalRSuperNetCoreClientWithJWTAuth{TTargetClass, TServerHubMethods, TClientListenerMethods, TAuthenticationDataType}" />
+    ///         cref="G9SignalRSuperNetCoreClientWithJWTAuth{TTargetClass, TServerHubMethods, TClientListenerMethods}" />
     ///     class with optional JWT authentication.
     /// </summary>
     /// <param name="serverUrl">The URL of the SignalR server.</param>
@@ -165,7 +159,7 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
     /// </summary>
     /// <param name="authorizeData">The data to send to the authentication server for authorization.</param>
     /// <param name="resultCallBack">A callback function to handle the authorization result.</param>
-    public async Task Authorize(TAuthenticationDataType authorizeData,
+    public async Task Authorize(object authorizeData,
         Func<bool, string?, string?, Task> resultCallBack)
     {
         _authResult = resultCallBack;
