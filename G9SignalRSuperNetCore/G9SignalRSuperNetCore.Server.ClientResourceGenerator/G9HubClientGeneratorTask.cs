@@ -129,7 +129,8 @@ public class G9HubClientGeneratorTask : Task
             "ConfigureHubForJWTRoute",
             "AuthAndGetJWTRoutePattern",
             "OnConnectedAsyncNext",
-            "OnDisconnectedAsyncNext"
+            "OnDisconnectedAsyncNext",
+            "AuthenticateAndGenerateJwtTokenAsync"
         };
 
         return cls.Members
@@ -141,6 +142,145 @@ public class G9HubClientGeneratorTask : Task
             .ToList();
     }
 
+    private (string typeName, string typeDefinition) ExtractAuthenticationType(ClassDeclarationSyntax hubClass, string className)
+    {
+        try
+        {
+            Log.LogMessage(MessageImportance.High, $"Extracting auth type from hub class: {hubClass.Identifier}");
+
+            // Get the base type that contains either G9AHubBaseWithJWTAuth or G9AHubBaseWithSessionAndJWTAuth
+            var baseType = hubClass.BaseList?.Types
+                .FirstOrDefault(bt => bt.ToString().Contains("G9AHubBaseWithJWTAuth") ||
+                                      bt.ToString().Contains("G9AHubBaseWithSessionAndJWTAuth"));
+
+            if (baseType == null)
+            {
+                Log.LogMessage(MessageImportance.High, "No JWT auth base type found");
+                return (null, null);
+            }
+
+            Log.LogMessage(MessageImportance.High, $"Found base type: {baseType}");
+
+            // Extract all generic arguments
+            var baseTypeString = baseType.ToString();
+            var startIndex = baseTypeString.IndexOf('<');
+            var endIndex = baseTypeString.LastIndexOf('>');
+
+            if (startIndex == -1 || endIndex == -1)
+            {
+                Log.LogMessage(MessageImportance.High, "No generic arguments found");
+                return (null, null);
+            }
+
+            var genericArgsString = baseTypeString.Substring(startIndex + 1, endIndex - startIndex - 1);
+            var genericArgs = genericArgsString.Split(',')
+                .Select(arg => arg.Trim())
+                .ToList();
+
+            Log.LogMessage(MessageImportance.High, $"Generic arguments found: {string.Join(", ", genericArgs)}");
+
+            // The auth type position depends on the base class
+            string authTypeName;
+            if (baseTypeString.Contains("G9AHubBaseWithSessionAndJWTAuth"))
+            {
+                // For G9AHubBaseWithSessionAndJWTAuth, auth type is the fourth argument
+                if (genericArgs.Count < 4)
+                {
+                    Log.LogMessage(MessageImportance.High, "Not enough generic arguments found for session-based hub");
+                    return (null, null);
+                }
+
+                authTypeName = genericArgs[2];
+            }
+            else
+            {
+                // For G9AHubBaseWithJWTAuth, auth type is the third argument
+                if (genericArgs.Count < 3)
+                {
+                    Log.LogMessage(MessageImportance.High, "Not enough generic arguments found for basic hub");
+                    return (null, null);
+                }
+
+                authTypeName = genericArgs[2];
+            }
+
+            Log.LogMessage(MessageImportance.High, $"Auth type name found: {authTypeName}");
+
+            // Find the authentication type class definition in all source files
+            foreach (var filePath in Directory.GetFiles(InputDirectory, "*.cs", SearchOption.AllDirectories))
+            {
+                Log.LogMessage(MessageImportance.High, $"Searching in file: {filePath}");
+
+                var sourceText = File.ReadAllText(filePath);
+                var syntaxTree = CSharpSyntaxTree.ParseText(sourceText);
+                var root = syntaxTree.GetRoot();
+
+                // Look for the class definition
+                var authTypeClass = root.DescendantNodes()
+                    .OfType<ClassDeclarationSyntax>()
+                    .FirstOrDefault(c => c.Identifier.Text == authTypeName);
+
+                if (authTypeClass != null)
+                {
+                    Log.LogMessage(MessageImportance.High, $"Found auth type class definition in {filePath}");
+
+                    // Get the full class definition including XML comments
+                    var classDefinition = new StringBuilder();
+
+                    // Add XML documentation if present
+                    var xmlTrivia = authTypeClass.GetLeadingTrivia()
+                        .Select(tr => tr.GetStructure())
+                        .OfType<DocumentationCommentTriviaSyntax>()
+                        .FirstOrDefault();
+
+                    if (xmlTrivia != null) classDefinition.Append($"///{xmlTrivia}");
+
+                    // Get class modifiers (public, etc.)
+                    var modifiers = string.Join(" ", authTypeClass.Modifiers);
+
+                    // Start class definition
+                    classDefinition.AppendLine($"{modifiers} class {className}{authTypeClass.Identifier.Text}");
+
+                    // Add base type if present
+                    if (authTypeClass.BaseList != null)
+                        classDefinition.Append(
+                            $" : {string.Join(", ", authTypeClass.BaseList.Types.Select(t => t.ToString()))}");
+                    classDefinition.AppendLine();
+                    classDefinition.AppendLine("{");
+
+                    // Add members
+                    foreach (var member in authTypeClass.Members)
+                    {
+                        // Get member's XML documentation if present
+                        var memberXmlTrivia = member.GetLeadingTrivia()
+                            .Select(tr => tr.GetStructure())
+                            .OfType<DocumentationCommentTriviaSyntax>()
+                            .FirstOrDefault();
+
+                        if (memberXmlTrivia != null)
+                            classDefinition.Append(
+                                $"    {(memberXmlTrivia.ToString().StartsWith("//") ? memberXmlTrivia.ToString() : $"///{memberXmlTrivia}")}");
+
+                        // Add the member definition with 4 spaces indentation
+                        classDefinition.AppendLine($"    {member}");
+                    }
+
+                    classDefinition.AppendLine("}");
+
+                    return ($"{className}{authTypeName}", classDefinition.ToString());
+                }
+            }
+
+            // If we found the type name but not the definition, still return the name
+            Log.LogMessage(MessageImportance.High, "Auth type class definition not found, but returning type name");
+            return (authTypeName, null);
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning($"Error extracting auth type: {ex.Message}");
+            return (null, null);
+        }
+    }
 
     /// <summary>
     ///     Generates the client-side helper code, including interfaces and client classes.
@@ -158,10 +298,15 @@ public class G9HubClientGeneratorTask : Task
         var clientClass = $"{className}Client";
 
         // Determine the base type and adjust structure based on inheritance
+        // ReSharper disable once PossibleNullReferenceException
         var isJwtAuthHub = hubClass.BaseList.Types
             .Any(baseType => baseType.ToString().Contains("G9AHubBaseWithJWTAuth"));
         var isSessionAndJwtAuthHub = hubClass.BaseList.Types
             .Any(baseType => baseType.ToString().Contains("G9AHubBaseWithSessionAndJWTAuth"));
+
+        var authTypeComments = @"// The data type used for authentication (e.g., credentials, token information).
+// This is a type introduced to support flexible authentication methods.";
+        var (authTypeName, authTypeDefinition) = ExtractAuthenticationType(hubClass, className);
 
         if (isJwtAuthHub || isSessionAndJwtAuthHub)
         {
@@ -182,7 +327,7 @@ public class G9HubClientGeneratorTask : Task
         var methodsDefinition = GenerateMethodsDefinition(serverMethods);
 
         var baseClass = isJwtAuthHub || isSessionAndJwtAuthHub
-            ? $"G9SignalRSuperNetCoreClientWithJWTAuth<{clientClass}, {methodsInterface}, {listenersInterface}>"
+            ? $"G9SignalRSuperNetCoreClientWithJWTAuth<{clientClass}, {methodsInterface}, {listenersInterface}, {authTypeName}>"
             : $"G9SignalRSuperNetCoreClient<{clientClass}, {methodsInterface}, {listenersInterface}>";
 
         var authParameter = isJwtAuthHub || isSessionAndJwtAuthHub
@@ -220,9 +365,11 @@ public interface {listenersInterface}
 {listenersDefinition}
 }}
 
+{(authTypeDefinition != null ? $"{authTypeComments}{Environment.NewLine}{authTypeDefinition}" + Environment.NewLine : "")}
+
 /// <summary>
 /// Client class for interacting with the SignalR hub '{className}'.
-/// Implements '{listenersInterface}' for handling server-side callbacks and provides methods to interact with the server via '{methodsInterface}' .
+/// Implements '{listenersInterface}' for handling server-side callbacks and provides methods to interact with the server via '{methodsInterface}'.
 /// This class handles server-side method calls and processes callbacks from the server.
 /// <para/>
 /// Sample:
@@ -243,7 +390,6 @@ public class {clientClass} : {baseClass}, {listenersInterface}
     }}
 }}";
     }
-
 
     /// <summary>
     ///     Generates the definition for the listeners interface, including XML documentation comments if present.

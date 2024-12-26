@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 ///     Interface defining server-side methods callable from the client.
 ///     Contains methods exposed by the server for client interaction.
 /// </summary>
-public interface G9ICustomHubMethods
+public interface ICustomHubMethods
 {
     /// <summary>
     ///     Information
@@ -30,7 +30,7 @@ public interface G9ICustomHubMethods
 ///     Interface defining client-side callback methods (listeners).
 ///     Contains methods that the server can invoke on the client.
 /// </summary>
-public interface G9ICustomHubListeners
+public interface ICustomHubListeners
 {
     /// <summary>
     ///     Method to receive the result for login
@@ -41,10 +41,11 @@ public interface G9ICustomHubListeners
     Task Replay(string message);
 }
 
+
 /// <summary>
 ///     Client class for interacting with the SignalR hub 'CustomHub'.
-///     Implements 'G9ICustomHubListeners' for handling server-side callbacks and provides methods to interact with the
-///     server via 'G9ICustomHubMethods' .
+///     Implements 'ICustomHubListeners' for handling server-side callbacks and provides methods to interact with the
+///     server via 'ICustomHubMethods'.
 ///     This class handles server-side method calls and processes callbacks from the server.
 ///     <para />
 ///     Sample:
@@ -57,10 +58,10 @@ public interface G9ICustomHubListeners
 /// }
 /// </code>
 /// </summary>
-public class G9CCustomHubClient :
-    G9SignalRSuperNetCoreClient<G9CCustomHubClient, G9ICustomHubMethods, G9ICustomHubListeners>, G9ICustomHubListeners
+public class CustomHubClient : G9SignalRSuperNetCoreClient<CustomHubClient, ICustomHubMethods, ICustomHubListeners>,
+    ICustomHubListeners
 {
-    public G9CCustomHubClient(string serverUrl,
+    public CustomHubClient(string serverUrl,
         Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,
         Action<HttpConnectionOptions>? configureHttpConnection = null)
         : base($"{serverUrl}/ApplicationHub", customConfigureBuilder, configureHttpConnection)
@@ -88,7 +89,7 @@ public class G9CCustomHubClient :
 ///     Interface defining server-side methods callable from the client.
 ///     Contains methods exposed by the server for client interaction.
 /// </summary>
-public interface G9ICustomHubWithJWTAuthMethodsWithJWTAuth
+public interface ICustomHubWithJWTAuthMethodsWithJWTAuth
 {
     /// <summary>
     ///     Information
@@ -108,7 +109,7 @@ public interface G9ICustomHubWithJWTAuthMethodsWithJWTAuth
 ///     Interface defining client-side callback methods (listeners).
 ///     Contains methods that the server can invoke on the client.
 /// </summary>
-public interface G9ICustomHubWithJWTAuthListenersWithJWTAuth
+public interface ICustomHubWithJWTAuthListenersWithJWTAuth
 {
     /// <summary>
     ///     Method to receive the result for login
@@ -119,10 +120,32 @@ public interface G9ICustomHubWithJWTAuthListenersWithJWTAuth
     Task Replay(string message);
 }
 
+// The data type used for authentication (e.g., credentials, token information).
+// This is a type introduced to support flexible authentication methods.
+/// <summary>
+///     Authentication type
+/// </summary>
+public class CustomHubWithJWTAuthCAuthenticationType
+
+{
+    /// <summary>
+    ///     Identity
+    /// </summary>
+    public int Id { get; set; }
+
+    /// <summary>
+    ///     Name
+    /// </summary>
+    public string Name { get; set; }
+
+    public string Description { get; set; }
+}
+
+
 /// <summary>
 ///     Client class for interacting with the SignalR hub 'CustomHubWithJWTAuth'.
-///     Implements 'G9ICustomHubWithJWTAuthListenersWithJWTAuth' for handling server-side callbacks and provides methods to
-///     interact with the server via 'G9ICustomHubWithJWTAuthMethodsWithJWTAuth' .
+///     Implements 'ICustomHubWithJWTAuthListenersWithJWTAuth' for handling server-side callbacks and provides methods to
+///     interact with the server via 'ICustomHubWithJWTAuthMethodsWithJWTAuth'.
 ///     This class handles server-side method calls and processes callbacks from the server.
 ///     <para />
 ///     Sample:
@@ -135,12 +158,12 @@ public interface G9ICustomHubWithJWTAuthListenersWithJWTAuth
 /// }
 /// </code>
 /// </summary>
-public class G9CCustomHubWithJWTAuthClientWithJWTAuth :
-    G9SignalRSuperNetCoreClientWithJWTAuth<G9CCustomHubWithJWTAuthClientWithJWTAuth,
-        G9ICustomHubWithJWTAuthMethodsWithJWTAuth, G9ICustomHubWithJWTAuthListenersWithJWTAuth>,
-    G9ICustomHubWithJWTAuthListenersWithJWTAuth
+public class CustomHubWithJWTAuthClientWithJWTAuth :
+    G9SignalRSuperNetCoreClientWithJWTAuth<CustomHubWithJWTAuthClientWithJWTAuth,
+        ICustomHubWithJWTAuthMethodsWithJWTAuth, ICustomHubWithJWTAuthListenersWithJWTAuth,
+        CustomHubWithJWTAuthCAuthenticationType>, ICustomHubWithJWTAuthListenersWithJWTAuth
 {
-    public G9CCustomHubWithJWTAuthClientWithJWTAuth(string serverUrl, string? jwToken = null,
+    public CustomHubWithJWTAuthClientWithJWTAuth(string serverUrl, string? jwToken = null,
         Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,
         Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilderForAuthServer = null,
         Action<HttpConnectionOptions>? configureHttpConnection = null,
@@ -171,7 +194,7 @@ public class G9CCustomHubWithJWTAuthClientWithJWTAuth :
 ///     Interface defining server-side methods callable from the client.
 ///     Contains methods exposed by the server for client interaction.
 /// </summary>
-public interface G9ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth
+public interface ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth
 {
     /// <summary>
     ///     Information
@@ -191,7 +214,7 @@ public interface G9ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth
 ///     Interface defining client-side callback methods (listeners).
 ///     Contains methods that the server can invoke on the client.
 /// </summary>
-public interface G9ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
+public interface ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
 {
     /// <summary>
     ///     Method to receive the result for login
@@ -202,10 +225,32 @@ public interface G9ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
     Task Replay(string message);
 }
 
+// The data type used for authentication (e.g., credentials, token information).
+// This is a type introduced to support flexible authentication methods.
+/// <summary>
+///     Authentication type
+/// </summary>
+public class CustomHubWithJWTAuthAndSessionCAuthenticationType
+
+{
+    /// <summary>
+    ///     Identity
+    /// </summary>
+    public int Id { get; set; }
+
+    /// <summary>
+    ///     Name
+    /// </summary>
+    public string Name { get; set; }
+
+    public string Description { get; set; }
+}
+
+
 /// <summary>
 ///     Client class for interacting with the SignalR hub 'CustomHubWithJWTAuthAndSession'.
-///     Implements 'G9ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth' for handling server-side callbacks and provides
-///     methods to interact with the server via 'G9ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth' .
+///     Implements 'ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth' for handling server-side callbacks and provides
+///     methods to interact with the server via 'ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth'.
 ///     This class handles server-side method calls and processes callbacks from the server.
 ///     <para />
 ///     Sample:
@@ -218,12 +263,12 @@ public interface G9ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
 /// }
 /// </code>
 /// </summary>
-public class G9CCustomHubWithJWTAuthAndSessionClientWithJWTAuth :
-    G9SignalRSuperNetCoreClientWithJWTAuth<G9CCustomHubWithJWTAuthAndSessionClientWithJWTAuth,
-        G9ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth, G9ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth>,
-    G9ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
+public class CustomHubWithJWTAuthAndSessionClientWithJWTAuth :
+    G9SignalRSuperNetCoreClientWithJWTAuth<CustomHubWithJWTAuthAndSessionClientWithJWTAuth,
+        ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth, ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth,
+        CustomHubWithJWTAuthAndSessionCAuthenticationType>, ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
 {
-    public G9CCustomHubWithJWTAuthAndSessionClientWithJWTAuth(string serverUrl, string? jwToken = null,
+    public CustomHubWithJWTAuthAndSessionClientWithJWTAuth(string serverUrl, string? jwToken = null,
         Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,
         Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilderForAuthServer = null,
         Action<HttpConnectionOptions>? configureHttpConnection = null,
@@ -254,15 +299,16 @@ public class G9CCustomHubWithJWTAuthAndSessionClientWithJWTAuth :
 ///     Interface defining server-side methods callable from the client.
 ///     Contains methods exposed by the server for client interaction.
 /// </summary>
-public interface G9ICustomHubWithSessionMethods
+public interface ICustomHubWithSessionMethods
 {
+    Task Login(string userName, string password);
 }
 
 /// <summary>
 ///     Interface defining client-side callback methods (listeners).
 ///     Contains methods that the server can invoke on the client.
 /// </summary>
-public interface G9ICustomHubWithSessionListeners
+public interface ICustomHubWithSessionListeners
 {
     /// <summary>
     ///     Method to receive the result for login
@@ -273,10 +319,11 @@ public interface G9ICustomHubWithSessionListeners
     Task Replay(string message);
 }
 
+
 /// <summary>
 ///     Client class for interacting with the SignalR hub 'CustomHubWithSession'.
-///     Implements 'G9ICustomHubWithSessionListeners' for handling server-side callbacks and provides methods to interact
-///     with the server via 'G9ICustomHubWithSessionMethods' .
+///     Implements 'ICustomHubWithSessionListeners' for handling server-side callbacks and provides methods to interact
+///     with the server via 'ICustomHubWithSessionMethods'.
 ///     This class handles server-side method calls and processes callbacks from the server.
 ///     <para />
 ///     Sample:
@@ -289,11 +336,11 @@ public interface G9ICustomHubWithSessionListeners
 /// }
 /// </code>
 /// </summary>
-public class G9CCustomHubWithSessionClient :
-    G9SignalRSuperNetCoreClient<G9CCustomHubWithSessionClient, G9ICustomHubWithSessionMethods,
-        G9ICustomHubWithSessionListeners>, G9ICustomHubWithSessionListeners
+public class CustomHubWithSessionClient :
+    G9SignalRSuperNetCoreClient<CustomHubWithSessionClient, ICustomHubWithSessionMethods,
+        ICustomHubWithSessionListeners>, ICustomHubWithSessionListeners
 {
-    public G9CCustomHubWithSessionClient(string serverUrl,
+    public CustomHubWithSessionClient(string serverUrl,
         Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,
         Action<HttpConnectionOptions>? configureHttpConnection = null)
         : base($"{serverUrl}/CustomHubWithSession", customConfigureBuilder, configureHttpConnection)

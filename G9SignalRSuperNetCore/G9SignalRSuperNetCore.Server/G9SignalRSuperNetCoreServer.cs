@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using System.Text.Json;
 using G9AssemblyManagement;
 using G9SignalRSuperNetCore.Server.Classes.Abstracts;
 using G9SignalRSuperNetCore.Server.Classes.Helper;
@@ -40,6 +41,35 @@ public static class G9SignalRSuperNetCoreServer
     /// </summary>
     private static readonly Dictionary<string, TokenValidationParameters> HubTokenValidationParameters = new();
 
+    /// <summary>
+    ///     Determines if the target hub class is derived from
+    ///     <see cref="G9AHubBaseWithJWTAuth{TTargetClass,TClientSideMethodsInterface,TAuthenticationDataType}" />.
+    /// </summary>
+    /// <param name="targetType">The type of the target class to check.</param>
+    /// <returns>
+    ///     True if the target class inherits from
+    ///     <see cref="G9AHubBaseWithJWTAuth{TTargetClass,TClientSideMethodsInterface, TAuthenticationDataType}" />, otherwise
+    ///     false.
+    /// </returns>
+    private static bool IsInheritedFromG9AHubBaseWithJWTAuth(Type targetType)
+    {
+        // The base generic type definition
+        var baseType = typeof(G9AHubBaseWithJWTAuth<,,>);
+        // Traverse the inheritance chain to check if targetType or its base types
+        // are a closed type of G9AHubBaseWithJWTAuth<,,>
+        while (targetType != null)
+        {
+            // Check if the current type is a closed generic type
+            if (targetType.IsGenericType && targetType.GetGenericTypeDefinition() == baseType) return true;
+
+            // Move to the base type in the inheritance hierarchy
+#pragma warning disable CS8600 // Converting null literal or possible null value to non-nullable type.
+            targetType = targetType.BaseType;
+#pragma warning restore CS8600 // Converting null literal or possible null value to non-nullable type.
+        }
+
+        return false;
+    }
 
     /// <summary>
     ///     Adds the SignalR SuperNetCore server services to the dependency injection container.
@@ -83,43 +113,48 @@ public static class G9SignalRSuperNetCoreServer
         }
 
         // Handle JWT Authentication only once
-        if (targetClass is G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface> withJwtAuth &&
-            !_addJwtService)
+        if (IsInheritedFromG9AHubBaseWithJWTAuth(typeof(TTargetClass)))
         {
-            _addJwtService = true;
+            var methods = G9Assembly.ReflectionTools.GetMethodsOfObject(targetClass);
 
-            var auth = withJwtAuth.GetAuthorizeTokenValidationForHub();
-            var hubPath = withJwtAuth.RoutePattern();
+            var auth = methods.Single(s => s.MethodName == "GetAuthorizeTokenValidationForHub")
+                .CallMethodWithResult<TokenValidationParameters>();
+            var hubPath = methods.Single(s => s.MethodName == "RoutePattern")
+                .CallMethodWithResult<string>();
 
             // Store the hub path and its corresponding authentication configuration
             HubTokenValidationParameters[hubPath] = auth;
 
-            // Add JWT Bearer Authentication
-            services.AddAuthentication("Bearer")
-                .AddJwtBearer("Bearer", options =>
-                {
-                    options.Events = new JwtBearerEvents
+            if (!_addJwtService)
+            {
+                _addJwtService = true;
+                // Add JWT Bearer Authentication
+                services.AddAuthentication("Bearer")
+                    .AddJwtBearer("Bearer", options =>
                     {
-                        OnMessageReceived = context =>
+                        options.Events = new JwtBearerEvents
                         {
-                            var accessToken = context.Request.Query["access_token"];
-
-                            // Check if the request is for one of the hubs
-                            foreach (var path in HubTokenValidationParameters.Keys.Where(path =>
-                                         context.HttpContext.Request.Path.StartsWithSegments(path)))
+                            OnMessageReceived = context =>
                             {
-                                // Assign the appropriate token validation parameters based on the hub path
-                                options.TokenValidationParameters = HubTokenValidationParameters[path];
+                                var accessToken = context.Request.Query["access_token"];
 
-                                if (!string.IsNullOrEmpty(accessToken)) context.Token = accessToken;
+                                // Check if the request is for one of the hubs
+                                foreach (var path in HubTokenValidationParameters.Keys.Where(path =>
+                                             context.HttpContext.Request.Path.StartsWithSegments(path)))
+                                {
+                                    // Assign the appropriate token validation parameters based on the hub path
+                                    options.TokenValidationParameters = HubTokenValidationParameters[path];
 
-                                break;
+                                    if (!string.IsNullOrEmpty(accessToken)) context.Token = accessToken;
+
+                                    break;
+                                }
+
+                                return Task.CompletedTask;
                             }
-
-                            return Task.CompletedTask;
-                        }
-                    };
-                });
+                        };
+                    });
+            }
 
             // Add authorization services if not already done
             services.AddAuthorization();
@@ -163,19 +198,33 @@ public static class G9SignalRSuperNetCoreServer
         var targetClass = G9Assembly.InstanceTools.CreateUninitializedInstanceFromType<TTargetClass>();
 
 
-        if (targetClass is G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface> withJwtAuth)
+        if (IsInheritedFromG9AHubBaseWithJWTAuth(typeof(TTargetClass)))
         {
-            // Map the Hub to its defined route and apply configurations
-            var jwtRoutePattern = withJwtAuth.AuthAndGetJWTRoutePattern();
+            var methods = G9Assembly.ReflectionTools.GetMethodsOfObject(targetClass);
+
+            // Fetch the route and authentication methods
+            var jwtRoutePattern = methods.Single(s => s.MethodName == "AuthAndGetJWTRoutePattern")
+                .CallMethodWithResult<string>();
+            var authenticateMethod = methods.Single(s => s.MethodName == "AuthenticateAndGenerateJwtTokenAsync");
+            var genericParameterType = authenticateMethod.MethodInfo.GetParameters()[0].ParameterType;
+
+            // Add authentication route with JWT token generation
             if (!G9GetJwtHub._validateUserAndGenerateJWTokenPerRoute.ContainsKey(jwtRoutePattern))
                 _ = G9GetJwtHub._validateUserAndGenerateJWTokenPerRoute.TryAdd(jwtRoutePattern,
-                    withJwtAuth.AuthenticateAndGenerateJwtTokenAsync);
+                    (authenticationData, hub) =>
+                        authenticateMethod.CallMethodWithResult<Task<G9JWTokenFactory>>(JsonSerializer.Deserialize(
+                            authenticationData, genericParameterType, new JsonSerializerOptions
+                            {
+                                PropertyNameCaseInsensitive = true
+                            }), hub));
 
-            app.MapHub<G9GetJwtHub>(jwtRoutePattern, withJwtAuth.ConfigureHubForJWTRoute);
+
+            app.MapHub<G9GetJwtHub>(jwtRoutePattern,
+                options => methods.Single(s => s.MethodName == "ConfigureHubForJWTRoute").CallMethod(options));
 
 
             // Map the Hub to its defined route and apply configurations
-            app.MapHub<TTargetClass>(withJwtAuth.RoutePattern(), withJwtAuth.ConfigureHub).RequireAuthorization();
+            app.MapHub<TTargetClass>(targetClass.RoutePattern(), targetClass.ConfigureHub).RequireAuthorization();
         }
         else
         {

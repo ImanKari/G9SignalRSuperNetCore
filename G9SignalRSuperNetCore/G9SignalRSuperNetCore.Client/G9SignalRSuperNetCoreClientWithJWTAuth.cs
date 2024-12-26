@@ -6,7 +6,8 @@ namespace G9SignalRSuperNetCore.Client;
 /// <summary>
 ///     A SignalR client class that adds JWT (JSON Web Token) authentication capabilities.
 ///     This class extends the base
-///     <see cref="G9SignalRSuperNetCoreClient{TTargetClass,TServerHubMethods,TClientListenerMethods}" />
+///     <see
+///         cref="G9SignalRSuperNetCoreClientWithJWTAuth{TTargetClass, TServerHubMethods, TClientListenerMethods, TAuthenticationDataType}" />
 ///     by allowing connections with JWT tokens for authentication before connecting to the server hub.
 /// </summary>
 /// <typeparam name="TTargetClass">
@@ -18,17 +19,24 @@ namespace G9SignalRSuperNetCore.Client;
 /// <typeparam name="TClientListenerMethods">
 ///     An interface that defines the methods which can be invoked by the server, typically server-to-client notifications.
 /// </typeparam>
-public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServerHubMethods, TClientListenerMethods> :
+/// <typeparam name="TAuthenticationDataType">
+///     The type of data used for the authentication request, typically for sending user credentials or other
+///     authentication-related information to the authentication server.
+/// </typeparam>
+public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServerHubMethods, TClientListenerMethods,
+    TAuthenticationDataType> :
     G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethods, TClientListenerMethods>
     where TTargetClass : G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethods, TClientListenerMethods>
     where TServerHubMethods : class
     where TClientListenerMethods : class
+    where TAuthenticationDataType : class
 {
     #region Constructor
 
     /// <summary>
     ///     Initializes a new instance of the
-    ///     <see cref="G9SignalRSuperNetCoreClientWithJWTAuth{TTargetClass,TServerHubMethods,TClientListenerMethods}" />
+    ///     <see
+    ///         cref="G9SignalRSuperNetCoreClientWithJWTAuth{TTargetClass, TServerHubMethods, TClientListenerMethods, TAuthenticationDataType}" />
     ///     class with optional JWT authentication.
     /// </summary>
     /// <param name="serverUrl">The URL of the SignalR server.</param>
@@ -78,6 +86,7 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
 
     /// <summary>
     ///     Indicates whether the client is authorized with a valid JWT token.
+    ///     This property will be set to true if authorization is successful.
     /// </summary>
     public bool IsAuthorized { private set; get; }
 
@@ -87,6 +96,7 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
 
     /// <summary>
     ///     The <see cref="HubConnection" /> used for connecting to the authentication server.
+    ///     This connection is responsible for communicating with the authentication server to handle the JWT authentication.
     /// </summary>
     private readonly HubConnection _authConnection;
 
@@ -112,11 +122,13 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
 
     /// <summary>
     ///     The JWT token used for authentication after the authorization process is completed.
+    ///     This token will be set after a successful authorization from the authentication server.
     /// </summary>
     private string? _authJWToken;
 
     /// <summary>
     ///     A callback function that handles the result of the authorization request.
+    ///     This function will be called after the authorization process is complete.
     /// </summary>
     private Func<bool, string?, string?, Task>? _authResult;
 
@@ -135,6 +147,7 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
     {
         IsAuthorized = isAccepted;
 
+        // If authorized, store the JWT token for future use
         if (isAccepted)
             _authJWToken = jwToken;
 
@@ -142,21 +155,24 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
         if (_authResult != null)
             await _authResult.Invoke(isAccepted, reason, jwToken);
 
-        await _authConnection.StopAsync(); // Stop the authorization connection after processing the result
+        // Stop the authentication connection after processing the result
+        await _authConnection.StopAsync();
     }
 
     /// <summary>
     ///     Initiates the authorization process with the authentication server.
+    ///     This method sends the provided authorization data to the authentication server for validation.
     /// </summary>
     /// <param name="authorizeData">The data to send to the authentication server for authorization.</param>
     /// <param name="resultCallBack">A callback function to handle the authorization result.</param>
-    public async Task Authorize(object authorizeData, Func<bool, string?, string?, Task> resultCallBack)
+    public async Task Authorize(TAuthenticationDataType authorizeData,
+        Func<bool, string?, string?, Task> resultCallBack)
     {
         _authResult = resultCallBack;
 
         // Start the connection to the authentication server and send the authorization request
         await _authConnection.StartAsync();
-        await _authConnection.SendCoreAsync("Authorize", [authorizeData]);
+        await _authConnection.SendCoreAsync("Authorize", new object?[] { authorizeData });
     }
 
     #endregion
@@ -176,7 +192,8 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
             {
                 if (!string.IsNullOrWhiteSpace(_jwToken))
                     return Task.FromResult(_jwToken)!;
-                if (!string.IsNullOrWhiteSpace(_authJWToken)) return Task.FromResult(_authJWToken)!;
+                if (!string.IsNullOrWhiteSpace(_authJWToken))
+                    return Task.FromResult(_authJWToken)!;
                 throw new InvalidOperationException(
                     "JWT token is required for authentication, but neither the provided token nor the authenticated token are available.");
             };
@@ -191,21 +208,25 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
 
     /// <summary>
     ///     Establishes the SignalR connection to the server using a provided JWT token for authentication.
+    ///     This method allows the client to manually pass the JWT token for authentication.
     /// </summary>
     /// <param name="jwToken">The JWT token to use for authenticating the connection.</param>
     public async Task ConnectAsync(string jwToken)
     {
         PrepareConnection(_serverUrl, _customConfigureBuilder, configHttp =>
         {
-            configHttp.AccessTokenProvider = () => (Task.FromResult(jwToken) ?? throw new InvalidOperationException(
-                    "JWT token is required for authentication, but neither the provided token nor the authenticated token are available."))
-                !; // Use the provided JWT token
+            // Set the access token provider to use the provided JWT token
+            configHttp.AccessTokenProvider = () => (Task.FromResult(jwToken)
+                                                    ?? throw new InvalidOperationException(
+                                                        "JWT token is required for authentication, but neither the provided token nor the authenticated token are available."))
+                !;
 
             _configureHttpConnection?.Invoke(configHttp); // Apply any additional HTTP connection configurations
         });
 
         // Start the connection to the SignalR server
         await Connection.StartAsync();
+        Console.WriteLine("Connected to the server.");
     }
 
     #endregion

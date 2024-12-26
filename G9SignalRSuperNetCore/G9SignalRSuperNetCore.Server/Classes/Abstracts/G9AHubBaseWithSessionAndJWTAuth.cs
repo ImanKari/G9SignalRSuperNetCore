@@ -6,11 +6,13 @@ using Microsoft.AspNetCore.SignalR;
 namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 
 /// <summary>
-///     A base class for SignalR hubs that includes session management for connected users.
+///     A base class for SignalR hubs that includes session management for connected users and JWT authentication support.
 /// </summary>
 /// <typeparam name="TTargetClass">
 ///     The derived hub class inheriting from
-///     <see cref="G9AHubBaseWithSessionAndJWTAuth{TTargetClass,TSession,TClientSideMethodsInterface}" />.
+///     <see
+///         cref="G9AHubBaseWithSessionAndJWTAuth{TTargetClass, TClientSideMethodsInterface, TAuthenticationDataType, TSession}" />
+///     .
 /// </typeparam>
 /// <typeparam name="TSession">
 ///     The session class derived from <see cref="G9ASession" /> that stores user session details.
@@ -18,12 +20,22 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 /// <typeparam name="TClientSideMethodsInterface">
 ///     An interface that defines client-side methods which can be called from the server.
 /// </typeparam>
+/// <typeparam name="TAuthenticationDataType">
+///     The data type used for authentication (e.g., credentials, token information). This is a new generic type
+///     introduced to support flexible authentication methods.
+/// </typeparam>
+/// <remarks>
+///     The class is marked with the <see cref="AuthorizeAttribute" /> to enforce that authentication is required
+///     for clients to connect and interact with the Hub.
+/// </remarks>
 [Authorize]
-public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideMethodsInterface, TSession>
-    : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
-    where TTargetClass : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
+public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideMethodsInterface,
+    TAuthenticationDataType, TSession>
+    : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface, TAuthenticationDataType>
+    where TTargetClass : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface, TAuthenticationDataType>
     where TClientSideMethodsInterface : class
     where TSession : G9ASession, new()
+    where TAuthenticationDataType : class
 {
     #region Fields And Properties
 
@@ -31,6 +43,7 @@ public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideM
 
     /// <summary>
     ///     A thread-safe dictionary that keeps track of user sessions based on their unique user ID.
+    ///     This is useful for managing and monitoring multiple connections for a single user.
     /// </summary>
     private readonly ConcurrentDictionary<string, G9ASession> _userConnectionCounts = new();
 

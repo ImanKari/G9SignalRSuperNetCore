@@ -42,14 +42,18 @@ internal class Program
 
         var token = string.Empty;
 
-        var client = new G9CCustomHubWithJWTAuthAndSessionClientWithJWTAuth("https://localhost:7159");
-        
+        var client = new CustomHubWithJWTAuthAndSessionClientWithJWTAuth("https://localhost:7159");
+
 
         var hasResult = false;
         var isAccepted = false;
         string authReason = null;
         await client.Authorize(
-            "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$",
+            new CustomHubWithJWTAuthAndSessionCAuthenticationType()
+            {
+                Name =
+                    "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$"
+            },
             (accept, reason, jwToken) =>
             {
                 isAccepted = accept;

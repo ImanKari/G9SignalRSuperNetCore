@@ -41,9 +41,11 @@ public interface ICustomHubListeners
 
 }
 
+
+
 /// <summary>
 /// Client class for interacting with the SignalR hub 'CustomHub'.
-/// Implements 'ICustomHubListeners' for handling server-side callbacks and provides methods to interact with the server via 'ICustomHubMethods' .
+/// Implements 'ICustomHubListeners' for handling server-side callbacks and provides methods to interact with the server via 'ICustomHubMethods'.
 /// This class handles server-side method calls and processes callbacks from the server.
 /// <para/>
 /// Sample:
@@ -76,7 +78,6 @@ public class CustomHubClient : G9SignalRSuperNetCoreClient<CustomHubClient, ICus
 /// </summary>
 public interface ICustomHubWithJWTAuthMethodsWithJWTAuth
 {
-    Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(object authorizeData, Hub accessToUnauthorizedVirtualHub);
     /// <summary>
     /// Information
     /// </summary>
@@ -109,9 +110,30 @@ public interface ICustomHubWithJWTAuthListenersWithJWTAuth
 
 }
 
+// The data type used for authentication (e.g., credentials, token information).
+// This is a type introduced to support flexible authentication methods.
+/// <summary>
+/// Authentication type
+/// </summary>
+public class CustomHubWithJWTAuthCAuthenticationType
+
+{
+    /// <summary>
+    /// Identity
+    /// </summary>
+    public int Id { get; set; }
+    /// <summary>
+    /// Name
+    /// </summary>
+    public string Name { get; set; }
+    public string Description { get; set; }
+}
+
+
+
 /// <summary>
 /// Client class for interacting with the SignalR hub 'CustomHubWithJWTAuth'.
-/// Implements 'ICustomHubWithJWTAuthListenersWithJWTAuth' for handling server-side callbacks and provides methods to interact with the server via 'ICustomHubWithJWTAuthMethodsWithJWTAuth' .
+/// Implements 'ICustomHubWithJWTAuthListenersWithJWTAuth' for handling server-side callbacks and provides methods to interact with the server via 'ICustomHubWithJWTAuthMethodsWithJWTAuth'.
 /// This class handles server-side method calls and processes callbacks from the server.
 /// <para/>
 /// Sample:
@@ -124,7 +146,7 @@ public interface ICustomHubWithJWTAuthListenersWithJWTAuth
 /// }
 /// </code>
 /// </summary>
-public class CustomHubWithJWTAuthClientWithJWTAuth : G9SignalRSuperNetCoreClientWithJWTAuth<CustomHubWithJWTAuthClientWithJWTAuth, ICustomHubWithJWTAuthMethodsWithJWTAuth, ICustomHubWithJWTAuthListenersWithJWTAuth>, ICustomHubWithJWTAuthListenersWithJWTAuth
+public class CustomHubWithJWTAuthClientWithJWTAuth : G9SignalRSuperNetCoreClientWithJWTAuth<CustomHubWithJWTAuthClientWithJWTAuth, ICustomHubWithJWTAuthMethodsWithJWTAuth, ICustomHubWithJWTAuthListenersWithJWTAuth, CustomHubWithJWTAuthCAuthenticationType>, ICustomHubWithJWTAuthListenersWithJWTAuth
 {
     public CustomHubWithJWTAuthClientWithJWTAuth(string serverUrl, string? jwToken = null,
 	Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,
@@ -146,7 +168,6 @@ public class CustomHubWithJWTAuthClientWithJWTAuth : G9SignalRSuperNetCoreClient
 /// </summary>
 public interface ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth
 {
-    Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(object authorizeData, Hub accessToUnauthorizedVirtualHub);
     /// <summary>
     /// Information
     /// </summary>
@@ -179,9 +200,30 @@ public interface ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
 
 }
 
+// The data type used for authentication (e.g., credentials, token information).
+// This is a type introduced to support flexible authentication methods.
+/// <summary>
+/// Authentication type
+/// </summary>
+public class CustomHubWithJWTAuthAndSessionCAuthenticationType
+
+{
+    /// <summary>
+    /// Identity
+    /// </summary>
+    public int Id { get; set; }
+    /// <summary>
+    /// Name
+    /// </summary>
+    public string Name { get; set; }
+    public string Description { get; set; }
+}
+
+
+
 /// <summary>
 /// Client class for interacting with the SignalR hub 'CustomHubWithJWTAuthAndSession'.
-/// Implements 'ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth' for handling server-side callbacks and provides methods to interact with the server via 'ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth' .
+/// Implements 'ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth' for handling server-side callbacks and provides methods to interact with the server via 'ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth'.
 /// This class handles server-side method calls and processes callbacks from the server.
 /// <para/>
 /// Sample:
@@ -194,7 +236,7 @@ public interface ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
 /// }
 /// </code>
 /// </summary>
-public class CustomHubWithJWTAuthAndSessionClientWithJWTAuth : G9SignalRSuperNetCoreClientWithJWTAuth<CustomHubWithJWTAuthAndSessionClientWithJWTAuth, ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth, ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth>, ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
+public class CustomHubWithJWTAuthAndSessionClientWithJWTAuth : G9SignalRSuperNetCoreClientWithJWTAuth<CustomHubWithJWTAuthAndSessionClientWithJWTAuth, ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth, ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth, CustomHubWithJWTAuthAndSessionCAuthenticationType>, ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
 {
     public CustomHubWithJWTAuthAndSessionClientWithJWTAuth(string serverUrl, string? jwToken = null,
 	Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,
@@ -236,9 +278,11 @@ public interface ICustomHubWithSessionListeners
 
 }
 
+
+
 /// <summary>
 /// Client class for interacting with the SignalR hub 'CustomHubWithSession'.
-/// Implements 'ICustomHubWithSessionListeners' for handling server-side callbacks and provides methods to interact with the server via 'ICustomHubWithSessionMethods' .
+/// Implements 'ICustomHubWithSessionListeners' for handling server-side callbacks and provides methods to interact with the server via 'ICustomHubWithSessionMethods'.
 /// This class handles server-side method calls and processes callbacks from the server.
 /// <para/>
 /// Sample:
