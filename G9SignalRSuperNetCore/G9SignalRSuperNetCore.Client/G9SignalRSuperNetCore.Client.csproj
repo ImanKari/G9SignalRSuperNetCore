@@ -6,9 +6,9 @@
 		<Nullable>enable</Nullable>
 
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-		<Version>1.0.1.4</Version>
-		<AssemblyVersion>1.0.1.4</AssemblyVersion>
-		<FileVersion>1.0.1.4</FileVersion>
+		<Version>1.0.1.5</Version>
+		<AssemblyVersion>1.0.1.5</AssemblyVersion>
+		<FileVersion>1.0.1.5</FileVersion>
 		<ApplicationIcon></ApplicationIcon>
 		<PackageIcon>G9-Icon.png</PackageIcon>
 		<PackageLicenseFile>LICENSE.md</PackageLicenseFile>
@@ -72,14 +72,8 @@
 			<PackageOutputPath>bin\$(Configuration)\</PackageOutputPath>
 		</PropertyGroup>
 
-		<Copy
-			SourceFiles="$(PackageOutputPath)$(PackageId).$([System.Text.RegularExpressions.Regex]::Replace(&quot;$(PackageVersion)&quot;, &quot;^(.+?)(\.0+)$&quot;, &quot;$1&quot;)).nupkg"
-			DestinationFolder="Z:\LocalNugetPackages\"
-			Condition="Exists('Z:\LocalNugetPackages\')" />
-		<Copy
-			SourceFiles="$(PackageOutputPath)$(PackageId).$([System.Text.RegularExpressions.Regex]::Replace(&quot;$(PackageVersion)&quot;, &quot;^(.+?)(\.0+)$&quot;, &quot;$1&quot;)).symbols.nupkg"
-			DestinationFolder="Z:\LocalNugetPackages\"
-			Condition="Exists('Z:\LocalNugetPackages\')" />
+		<Copy SourceFiles="$(PackageOutputPath)$(PackageId).$([System.Text.RegularExpressions.Regex]::Replace(&quot;$(PackageVersion)&quot;, &quot;^(.+?)(\.0+)$&quot;, &quot;$1&quot;)).nupkg" DestinationFolder="Z:\LocalNugetPackages\" Condition="Exists('Z:\LocalNugetPackages\')" />
+		<Copy SourceFiles="$(PackageOutputPath)$(PackageId).$([System.Text.RegularExpressions.Regex]::Replace(&quot;$(PackageVersion)&quot;, &quot;^(.+?)(\.0+)$&quot;, &quot;$1&quot;)).symbols.nupkg" DestinationFolder="Z:\LocalNugetPackages\" Condition="Exists('Z:\LocalNugetPackages\')" />
 	</Target>
 
 </Project>

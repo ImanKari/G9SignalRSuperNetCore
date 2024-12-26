@@ -31,16 +31,16 @@ public class CustomHubWithJWTAuthAndSession : G9AHubBaseWithSessionAndJWTAuth<Cu
         return "/AuthHub";
     }
 
-    public override Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(object authorizeData,
+    public override Task<(G9JWTokenFactory, object?)> AuthenticateAndGenerateJwtTokenAsync(object authorizeData,
         Hub accessToUnauthorizedVirtualHub)
     {
         // caller Ip Address
         // accessToUnauthorizedVirtualHub.Context.GetHttpContext()?.Connection.RemoteIpAddress
         if (authorizeData.ToString() ==
             "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$")
-            return Task.FromResult(jwToken);
+            return Task.FromResult<(G9JWTokenFactory, object?)>((jwToken, "This Is Awesome"));
 
-        return Task.FromResult(G9JWTokenFactory.RejectAuthorize("Incorrect Authorize Data!"));
+        return Task.FromResult<(G9JWTokenFactory, object?)>((G9JWTokenFactory.RejectAuthorize("Incorrect Authorize Data!"), "This Is Awesome"));
     }
 
 

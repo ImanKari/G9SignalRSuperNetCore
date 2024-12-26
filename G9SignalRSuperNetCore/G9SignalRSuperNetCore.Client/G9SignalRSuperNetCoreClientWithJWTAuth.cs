@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http.Connections.Client;
+﻿using G9SignalRSuperNetCore.Client.Classes.DataTypes;
+using Microsoft.AspNetCore.Http.Connections.Client;
 using Microsoft.AspNetCore.SignalR.Client;
 
 namespace G9SignalRSuperNetCore.Client;
@@ -71,7 +72,7 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
         _authConnection.ServerTimeout = TimeSpan.FromSeconds(60); // Wait for server response for 60 seconds
 
         // Register the AuthorizationResult method to handle authorization responses
-        _authConnection.On<bool, string?, string?>(nameof(AuthorizeResult), AuthorizeResult);
+        _authConnection.On<G9DtAuthorizeResult>(nameof(AuthorizeResult), AuthorizeResult);
     }
 
     #endregion
@@ -124,7 +125,7 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
     ///     A callback function that handles the result of the authorization request.
     ///     This function will be called after the authorization process is complete.
     /// </summary>
-    private Func<bool, string?, string?, Task>? _authResult;
+    private Func<G9DtAuthorizeResult, Task>? _authResult;
 
     #endregion
 
@@ -134,20 +135,23 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
     ///     Handles the result of the authorization process.
     ///     This method is triggered when the authorization request is completed.
     /// </summary>
-    /// <param name="isAccepted">Indicates whether the authorization was accepted.</param>
-    /// <param name="reason">A reason for rejection, if any.</param>
-    /// <param name="jwToken">The JWT token issued by the authentication server, if accepted.</param>
-    private async Task AuthorizeResult(bool isAccepted, string? reason, string? jwToken)
+    /// <param name="authorize">
+    ///     An object that contains the result of the authorization process,
+    ///     including whether the authorization was accepted, the rejection reason if applicable,
+    ///     the JWT token if accepted, and any additional data from the server.
+    /// </param>
+    private async Task AuthorizeResult(G9DtAuthorizeResult authorize)
     {
-        IsAuthorized = isAccepted;
+        // Set the authorization status based on the result
+        IsAuthorized = authorize.IsAccepted;
 
         // If authorized, store the JWT token for future use
-        if (isAccepted)
-            _authJWToken = jwToken;
+        if (authorize.IsAccepted)
+            _authJWToken = authorize.JWToken;
 
-        // Invoke the callback function if defined
+        // Invoke the callback function, if defined, with the authorization result details
         if (_authResult != null)
-            await _authResult.Invoke(isAccepted, reason, jwToken);
+            await _authResult.Invoke(authorize);
 
         // Stop the authentication connection after processing the result
         await _authConnection.StopAsync();
@@ -159,14 +163,14 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
     /// </summary>
     /// <param name="authorizeData">The data to send to the authentication server for authorization.</param>
     /// <param name="resultCallBack">A callback function to handle the authorization result.</param>
-    public async Task Authorize(object authorizeData,
-        Func<bool, string?, string?, Task> resultCallBack)
+    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
+    public async Task Authorize(object authorizeData, Func<G9DtAuthorizeResult, Task> resultCallBack)
     {
         _authResult = resultCallBack;
 
         // Start the connection to the authentication server and send the authorization request
         await _authConnection.StartAsync();
-        await _authConnection.SendCoreAsync("Authorize", new object?[] { authorizeData });
+        await _authConnection.SendCoreAsync("Authorize", new[] { authorizeData });
     }
 
     #endregion

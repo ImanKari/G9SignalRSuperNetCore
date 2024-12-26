@@ -50,12 +50,12 @@ internal class Program
         string authReason = null;
         await client.Authorize(
             "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$",
-            (accept, reason, jwToken) =>
+            (result) =>
             {
-                isAccepted = accept;
-                authReason = reason;
+                isAccepted = result.IsAccepted;
+                authReason = result.RejectionReason;
                 hasResult = true;
-                token = jwToken;
+                token = result.JWToken;
                 return Task.CompletedTask;
             });
 

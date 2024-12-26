@@ -9,13 +9,14 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 
 /// <summary>
 ///     A base class for implementing SignalR Hubs with JWT authentication support.
-///     This class extends <see cref="G9AHubBase{TTargetClass, TClientSideMethodsInterface}" /> by adding methods 
+///     This class extends <see cref="G9AHubBase{TTargetClass, TClientSideMethodsInterface}" /> by adding methods
 ///     to manage user authorization, JWT token generation, and token validation for the hub.
 ///     The derived classes must implement methods to handle user authentication, JWT token generation,
 ///     and token validation parameters.
 /// </summary>
 /// <typeparam name="TTargetClass">
-///     The derived Hub class inheriting from <see cref="G9AHubBaseWithJWTAuth{TTargetClass, TClientSideMethodsInterface}" />.
+///     The derived Hub class inheriting from
+///     <see cref="G9AHubBaseWithJWTAuth{TTargetClass, TClientSideMethodsInterface}" />.
 /// </typeparam>
 /// <typeparam name="TClientSideMethodsInterface">
 ///     An interface that defines the client-side methods that can be called from the server.
@@ -43,7 +44,8 @@ public abstract class G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInte
     ///     for this JWT-enabled Hub.
     /// </param>
     /// <remarks>
-    ///     This method can be overridden in derived classes to customize the behavior of HTTP connections when JWT authentication 
+    ///     This method can be overridden in derived classes to customize the behavior of HTTP connections when JWT
+    ///     authentication
     ///     is enabled for the Hub.
     /// </remarks>
     [G9AttrDenyAccess]
@@ -64,7 +66,8 @@ public abstract class G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInte
     ///     A <see cref="string" /> representing the route pattern for the JWT authentication route.
     /// </returns>
     /// <remarks>
-    ///     This method must be implemented by derived classes to define the URL path at which clients can request their JWT token, 
+    ///     This method must be implemented by derived classes to define the URL path at which clients can request their JWT
+    ///     token,
     ///     typically as part of an authentication process.
     /// </remarks>
     [G9AttrDenyAccess]
@@ -72,29 +75,35 @@ public abstract class G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInte
     public abstract string AuthAndGetJWTRoutePattern();
 
     /// <summary>
-    ///     Validates the user credentials and generates a JWT token. This method is responsible for ensuring
-    ///     the provided credentials (authorizeData) are valid and issuing
-    ///     a JWT token for authenticated clients.
+    ///     Authenticates the user based on the provided credentials and generates a JWT token for authorized clients.
+    ///     This method validates the given authorization data (e.g., credentials) and, if valid, issues a JWT token.
+    ///     The method is asynchronous and returns a tuple containing the JWT token factory and any additional data that may be
+    ///     required.
     /// </summary>
     /// <param name="authorizeData">
-    ///     The data containing the user credentials (such as username, password, or other forms of data required for
-    ///     authorization). This parameter, of type object, is used to verify 
-    ///     the identity and permissions of the user making the request.
+    ///     The user credentials or other authorization-related data (such as username, password, or other forms of input)
+    ///     that are used to authenticate the user. This data is used to verify the identity and permissions of the user
+    ///     making the request.
     /// </param>
     /// <param name="accessToUnauthorizedVirtualHub">
-    ///     The instance of the virtual hub from which this method is called. Although this method is defined in the
-    ///     authorization hub, it is invoked by a virtual hub. The parameter provides access to hub-specific data like
-    ///     the context of the hub, connection details, and other services. It allows you to access and manipulate
-    ///     the connection state or other hub-related information during the authentication process.
+    ///     The instance of the SignalR hub that called this method. While the method is part of the authorization hub, it
+    ///     may be invoked from a different virtual hub. This parameter provides access to the hub context, connection
+    ///     details, and services, allowing manipulation of the connection state or other hub-specific information
+    ///     during the authentication process.
     /// </param>
     /// <returns>
-    ///     A <see cref="Task{G9JWTokenFactory}" /> representing the asynchronous operation. The task result is a
-    ///     <see cref="G9JWTokenFactory" /> that contains the generated JWT token if authentication is successful.
+    ///     A <see cref="Task{ValueTuple{G9JWTokenFactory, object?}}" /> representing the asynchronous operation.
+    ///     The result is a tuple containing:
+    ///     <para />
+    ///     - A <see cref="G9JWTokenFactory" /> instance with the generated JWT token if authentication is successful.
+    ///     <para />
+    ///     - Any additional data related to the authentication process, which may be returned as `null` if not applicable.
     /// </returns>
     [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
-    public abstract Task<G9JWTokenFactory> AuthenticateAndGenerateJwtTokenAsync(object authorizeData,
+    public abstract Task<(G9JWTokenFactory, object?)> AuthenticateAndGenerateJwtTokenAsync(object authorizeData,
         Hub accessToUnauthorizedVirtualHub);
+
 
     /// <summary>
     ///     Retrieves the token validation parameters for validating JWT tokens used in this Hub.
@@ -103,7 +112,8 @@ public abstract class G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInte
     ///     A <see cref="TokenValidationParameters" /> object that defines how tokens should be validated.
     /// </returns>
     /// <remarks>
-    ///     This method is used to configure the validation parameters for the JWT token, such as the issuer, audience, signing key, 
+    ///     This method is used to configure the validation parameters for the JWT token, such as the issuer, audience, signing
+    ///     key,
     ///     and other aspects of token validation.
     /// </remarks>
     [G9AttrDenyAccess]
