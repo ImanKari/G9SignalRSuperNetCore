@@ -13,7 +13,7 @@ public abstract class G9ASession
     /// <remarks>
     ///     This value is internally managed and is used to keep track of a user's connection count.
     /// </remarks>
-    internal int ConnectionCounts { set; get; }
+    public int ConnectionCounts { internal set; get; }
 
     /// <summary>
     ///     Gets the IP address of the client associated with this session.
@@ -22,6 +22,16 @@ public abstract class G9ASession
     ///     This property is internally set when the session is established.
     /// </remarks>
     public IPAddress? ClientIpAddress { internal set; get; }
+
+    /// <summary>
+    ///     Gets or sets the first connection date time for this session.
+    /// </summary>
+    public DateTime FirstConnectionDateTime { get; internal init; }
+
+    /// <summary>
+    ///     Gets or sets the last activity date time for this session.
+    /// </summary>
+    public DateTime LastActivityDateTime { get; internal set; }
 
     /// <summary>
     ///     Called when a client disconnects from the hub.
