@@ -121,24 +121,20 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
     /// </summary>
     private string? _authJWToken;
 
-    /// <summary>
-    ///     A callback function that handles the result of the authorization request.
-    ///     This function will be called after the authorization process is complete.
-    /// </summary>
-    private Func<G9DtAuthorizeResult, Task>? _authResult;
+    private TaskCompletionSource<G9DtAuthorizeResult>? _tcsAuthorizeResult;
 
     #endregion
 
     #region Authorization Methods
 
     /// <summary>
-    ///     Handles the result of the authorization process.
-    ///     This method is triggered when the authorization request is completed.
+    ///     Handles the result of the authorization process by processing the response from the authentication server.
+    ///     This method is automatically invoked when the authentication server responds to the authorization request.
     /// </summary>
     /// <param name="authorize">
-    ///     An object that contains the result of the authorization process,
-    ///     including whether the authorization was accepted, the rejection reason if applicable,
-    ///     the JWT token if accepted, and any additional data from the server.
+    ///     An object of type <see cref="G9DtAuthorizeResult" /> that contains the result of the authorization process,
+    ///     including whether the authorization was accepted, the JWT token if accepted, and any additional data from the
+    ///     server.
     /// </param>
     private async Task AuthorizeResult(G9DtAuthorizeResult authorize)
     {
@@ -150,8 +146,8 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
             _authJWToken = authorize.JWToken;
 
         // Invoke the callback function, if defined, with the authorization result details
-        if (_authResult != null)
-            await _authResult.Invoke(authorize);
+        if (_tcsAuthorizeResult != null)
+            _tcsAuthorizeResult.SetResult(authorize);
 
         // Stop the authentication connection after processing the result
         await _authConnection.StopAsync();
@@ -159,18 +155,39 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
 
     /// <summary>
     ///     Initiates the authorization process with the authentication server.
-    ///     This method sends the provided authorization data to the authentication server for validation.
+    ///     This method sends the provided authorization data to the authentication server and waits for a response.
     /// </summary>
     /// <param name="authorizeData">The data to send to the authentication server for authorization.</param>
-    /// <param name="resultCallBack">A callback function to handle the authorization result.</param>
-    /// <returns>A <see cref="Task" /> representing the asynchronous operation.</returns>
-    public async Task Authorize(object authorizeData, Func<G9DtAuthorizeResult, Task> resultCallBack)
+    /// <returns>
+    ///     A <see cref="Task{TResult}" /> representing the asynchronous operation,
+    ///     with the result being a <see cref="G9DtAuthorizeResult" /> object containing the details of the authorization
+    ///     result.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown if the connection is not properly initialized or the JWT token is missing during the connection process.
+    /// </exception>
+    /// <exception cref="Exception">
+    ///     Thrown if there is an issue with starting the connection or sending the authorization request.
+    /// </exception>
+    public async Task<G9DtAuthorizeResult> AuthorizeAsync(object authorizeData)
     {
-        _authResult = resultCallBack;
+        _tcsAuthorizeResult = new TaskCompletionSource<G9DtAuthorizeResult>();
 
-        // Start the connection to the authentication server and send the authorization request
-        await _authConnection.StartAsync();
-        await _authConnection.SendCoreAsync("Authorize", new[] { authorizeData });
+        try
+        {
+            // Start the connection to the authentication server
+            await _authConnection.StartAsync();
+
+            // Send the authorization request
+            await _authConnection.SendCoreAsync("Authorize", new[] { authorizeData });
+        }
+        catch (Exception ex)
+        {
+            _tcsAuthorizeResult.SetException(ex);
+        }
+
+        // Wait for the authorization result from the callback
+        return await _tcsAuthorizeResult.Task;
     }
 
     #endregion
@@ -178,9 +195,13 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
     #region Connection Methods
 
     /// <summary>
-    ///     Establishes the SignalR connection to the server with JWT token authentication.
-    ///     The method will use the stored or acquired JWT token for the authentication process.
+    ///     Establishes the SignalR connection to the main server using JWT token authentication.
+    ///     This method uses either a previously provided JWT token or the token obtained during the authorization process.
     /// </summary>
+    /// <returns>A <see cref="Task" /> representing the asynchronous operation of connecting to the server.</returns>
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown if the JWT token is missing during the connection process.
+    /// </exception>
     public new async Task ConnectAsync()
     {
         PrepareConnection(_serverUrl, _customConfigureBuilder, configHttp =>
@@ -205,11 +226,16 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
     }
 
     /// <summary>
-    ///     Establishes the SignalR connection to the server using a provided JWT token for authentication.
-    ///     This method allows the client to manually pass the JWT token for authentication.
+    ///     Establishes the SignalR connection to the main server using a specified JWT token for authentication.
+    ///     This method allows the client to manually pass a JWT token for the connection process.
     /// </summary>
     /// <param name="jwToken">The JWT token to use for authenticating the connection.</param>
+    /// <returns>A <see cref="Task" /> representing the asynchronous operation of connecting to the server.</returns>
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown if the provided JWT token is null or empty.
+    /// </exception>
     public async Task ConnectAsync(string jwToken)
+
     {
         PrepareConnection(_serverUrl, _customConfigureBuilder, configHttp =>
         {
