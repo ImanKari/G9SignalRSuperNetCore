@@ -69,4 +69,11 @@ public class CustomHubWithJWTAuthAndSession : G9AHubBaseWithSessionAndJWTAuth<Cu
         Console.WriteLine(Context.ConnectionId);
         await Clients.Caller.Replay(message);
     }
+
+    public async Task TestResult(string result1, string result2)
+    {
+        Console.WriteLine($"Server Method: {nameof(TestResult)}, Receive: {result1}|{result2}");
+        await Clients.Caller.TestResult($"Server Received First: {result1}",
+            $"Server Received Second: {result2}");
+    }
 }

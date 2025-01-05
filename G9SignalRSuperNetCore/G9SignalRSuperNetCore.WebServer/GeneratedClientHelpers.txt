@@ -38,6 +38,7 @@ public interface ICustomHubListeners
 
     Task LoginResult(bool accepted);
     Task Replay(string message);
+    Task TestResult(string result1, string result2);
 
 }
 
@@ -105,6 +106,7 @@ public interface ICustomHubWithJWTAuthListenersWithJWTAuth
 
     Task LoginResult(bool accepted);
     Task Replay(string message);
+    Task TestResult(string result1, string result2);
 
 }
 
@@ -158,6 +160,7 @@ public interface ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth
     /// <param name="message">Okay</param>
 
     Task Replay(string message);
+    Task TestResult(string result1, string result2);
 
 }
 
@@ -174,6 +177,7 @@ public interface ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
 
     Task LoginResult(bool accepted);
     Task Replay(string message);
+    Task TestResult(string result1, string result2);
 
 }
 
@@ -231,6 +235,7 @@ public interface ICustomHubWithSessionListeners
 
     Task LoginResult(bool accepted);
     Task Replay(string message);
+    Task TestResult(string result1, string result2);
 
 }
 

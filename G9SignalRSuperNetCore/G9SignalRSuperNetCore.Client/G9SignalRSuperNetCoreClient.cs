@@ -264,7 +264,7 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
 
     #endregion
 
-    #region Assign Listener Events Methods
+    #region Assign Listener Event Methods
 
     /// <summary>
     ///     Registers a SignalR hub event listener for the specified method and its implementation.
@@ -502,6 +502,376 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
         Func<T1, T2, T3, T4, T5, T6, T7, T8, Task> implementation)
     {
         AssignListenerEventDelegateHandler(methodSelector, implementation);
+    }
+
+    #endregion
+
+    #region Listen Once Event Methdos
+
+    /// <summary>
+    ///     Registers a one-time listener for a SignalR callback and sends an optional request to the server.
+    ///     This method ensures that the listener is ready before the request is sent, preventing race conditions.
+    /// </summary>
+    /// <param name="callbackMethodName">The name of the callback method to listen for.</param>
+    /// <param name="callbackParameterTypes">An array of parameter types for the callback method being listened to.</param>
+    /// <param name="timeout">
+    ///     Optional. A <see cref="TimeSpan" /> specifying the maximum duration to wait for the callback.
+    ///     Defaults to 1 minute if not provided.
+    /// </param>
+    /// <param name="cancellationToken">
+    ///     Optional. A <see cref="CancellationToken" /> that can be used to cancel the operation.
+    /// </param>
+    /// <param name="sendAction">
+    ///     Optional. A function representing the action that sends a request to the server.
+    ///     This action is executed after the listener is registered.
+    /// </param>
+    /// <returns>
+    ///     A <see cref="Task{TResult}" /> representing the asynchronous operation,
+    ///     with the result being a dynamically created tuple containing the callback parameters.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown if tuple creation fails or if the received callback parameters do not match the expected types.
+    /// </exception>
+    /// <exception cref="TaskCanceledException">
+    ///     Thrown if the operation times out or is canceled.
+    /// </exception>
+    private async Task<object> ListenOnceCore(
+        string callbackMethodName,
+        Type[] callbackParameterTypes,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default,
+        Func<TServerHubMethods, Task>? sendAction = null)
+    {
+        var tcs = new TaskCompletionSource<object>();
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeout ?? TimeSpan.FromMinutes(1));
+
+        try
+        {
+            // Register one-time listener
+            Connection.On(callbackMethodName, callbackParameterTypes, args =>
+            {
+                if (args.Length == 0)
+                {
+                    tcs.TrySetException(
+                        new InvalidOperationException($"No arguments received for method '{callbackMethodName}'"));
+                }
+                else
+                {
+                    // Dynamically create a tuple from the arguments
+                    var result = CreateTuple(args!);
+                    tcs.TrySetResult(result);
+                }
+
+                return Task.CompletedTask;
+            });
+
+            // Send the request after the listener is registered
+            if (sendAction != null)
+                await sendAction(Server).ConfigureAwait(false);
+
+            // Wait for result or timeout
+            await using (cts.Token.Register(() => tcs.TrySetCanceled()))
+            {
+                return await tcs.Task.ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            // Clean up the listener after receiving the result or timeout
+            Connection.Remove(callbackMethodName);
+        }
+    }
+
+    /// <summary>
+    ///     Dynamically creates a tuple from an array of objects.
+    /// </summary>
+    /// <param name="args">An array of objects representing the callback arguments.</param>
+    /// <returns>
+    ///     An instance of a dynamically created tuple containing the provided arguments.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown if the tuple size is unsupported or if the tuple instance creation fails.
+    /// </exception>
+    private static object CreateTuple(object[] args)
+
+    {
+        var tupleType = Type.GetType($"System.ValueTuple`{args.Length}")
+                        ?? throw new InvalidOperationException("Unsupported tuple size.");
+
+        var genericTupleType = tupleType.MakeGenericType(args.Select(arg => arg.GetType()).ToArray());
+
+        return Activator.CreateInstance(genericTupleType, args)
+               ?? throw new InvalidOperationException("Failed to create tuple instance.");
+    }
+
+    /// <inheritdoc cref="ListenOnceAsync{T1, T2, T3, T4, T5, T6, T7}" />
+    public async Task<ValueTuple<T1>> ListenOnceAsync<T1>(
+        Expression<Func<TClientListenerMethods, Func<T1, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (methodName, parameterTypes) = ExtractMethodDetails(methodSelector);
+        var result = await ListenOnceCore(methodName, parameterTypes, timeout, cancellationToken);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1>)result;
+    }
+
+    /// <inheritdoc cref="ListenOnceAsync{T1, T2, T3, T4, T5, T6, T7}" />
+    public async Task<ValueTuple<T1, T2>> ListenOnceAsync<T1, T2>(
+        Expression<Func<TClientListenerMethods, Func<T1, T2, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (methodName, parameterTypes) = ExtractMethodDetails(methodSelector);
+        var result = await ListenOnceCore(methodName, parameterTypes, timeout, cancellationToken);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2>)result;
+    }
+
+    /// <inheritdoc cref="ListenOnceAsync{T1, T2, T3, T4, T5, T6, T7}" />
+    public async Task<ValueTuple<T1, T2, T3>> ListenOnceAsync<T1, T2, T3>(
+        Expression<Func<TClientListenerMethods, Func<T1, T2, T3, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (methodName, parameterTypes) = ExtractMethodDetails(methodSelector);
+        var result = await ListenOnceCore(methodName, parameterTypes, timeout, cancellationToken);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2, T3>)result;
+    }
+
+    /// <inheritdoc cref="ListenOnceAsync{T1, T2, T3, T4, T5, T6, T7}" />
+    public async Task<ValueTuple<T1, T2, T3, T4>> ListenOnceAsync<T1, T2, T3, T4>(
+        Expression<Func<TClientListenerMethods, Func<T1, T2, T3, T4, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (methodName, parameterTypes) = ExtractMethodDetails(methodSelector);
+        var result = await ListenOnceCore(methodName, parameterTypes, timeout, cancellationToken);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2, T3, T4>)result;
+    }
+
+    /// <inheritdoc cref="ListenOnceAsync{T1, T2, T3, T4, T5, T6, T7}" />
+    public async Task<ValueTuple<T1, T2, T3, T4, T5>> ListenOnceAsync<T1, T2, T3, T4, T5>(
+        Expression<Func<TClientListenerMethods, Func<T1, T2, T3, T4, T5, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (methodName, parameterTypes) = ExtractMethodDetails(methodSelector);
+        var result = await ListenOnceCore(methodName, parameterTypes, timeout, cancellationToken);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2, T3, T4, T5>)result;
+    }
+
+
+    /// <inheritdoc cref="ListenOnceAsync{T1, T2, T3, T4, T5, T6, T7}" />
+    public async Task<ValueTuple<T1, T2, T3, T4, T5, T6>> ListenOnceAsync<T1, T2, T3, T4, T5, T6>(
+        Expression<Func<TClientListenerMethods, Func<T1, T2, T3, T4, T5, T6, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (methodName, parameterTypes) = ExtractMethodDetails(methodSelector);
+        var result = await ListenOnceCore(methodName, parameterTypes, timeout, cancellationToken);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2, T3, T4, T5, T6>)result;
+    }
+
+
+    /// <summary>
+    ///     Listens for a one-time SignalR callback result from the server for a method with up to 7 parameters.
+    ///     This method waits for a single callback invocation, captures the result, and returns it as a tuple.
+    /// </summary>
+    /// <typeparam name="T1">The type of the first parameter returned by the callback.</typeparam>
+    /// <typeparam name="T2">The type of the second parameter returned by the callback.</typeparam>
+    /// <typeparam name="T3">The type of the third parameter returned by the callback.</typeparam>
+    /// <typeparam name="T4">The type of the fourth parameter returned by the callback.</typeparam>
+    /// <typeparam name="T5">The type of the fifth parameter returned by the callback.</typeparam>
+    /// <typeparam name="T6">The type of the sixth parameter returned by the callback.</typeparam>
+    /// <typeparam name="T7">The type of the seventh parameter returned by the callback.</typeparam>
+    /// <param name="methodSelector">
+    ///     An expression specifying the method in <typeparamref name="TClientListenerMethods" />
+    ///     to register as a one-time event listener.
+    /// </param>
+    /// <param name="timeout">
+    ///     Optional. A <see cref="TimeSpan" /> specifying the maximum duration to wait for the callback.
+    ///     If not provided, the default timeout is 1 minute.
+    /// </param>
+    /// <param name="cancellationToken">
+    ///     Optional. A <see cref="CancellationToken" /> that can be used to cancel the operation.
+    /// </param>
+    /// <returns>
+    ///     A <see cref="Task{TResult}" /> representing the asynchronous operation,
+    ///     with the result being a <see cref="ValueTuple{T1, T2, T3, T4, T5, T6, T7}" /> containing the callback parameters.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown if tuple creation fails or if the received callback parameters do not match the expected types.
+    /// </exception>
+    /// <exception cref="TaskCanceledException">
+    ///     Thrown if the operation times out or is canceled.
+    /// </exception>
+    public async Task<ValueTuple<T1, T2, T3, T4, T5, T6, T7>> ListenOnceAsync<T1, T2, T3, T4, T5, T6, T7>(
+        Expression<Func<TClientListenerMethods, Func<T1, T2, T3, T4, T5, T6, T7, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+
+    {
+        var (methodName, parameterTypes) = ExtractMethodDetails(methodSelector);
+        var result = await ListenOnceCore(methodName, parameterTypes, timeout, cancellationToken);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2, T3, T4, T5, T6, T7>)result;
+    }
+
+    /// <inheritdoc cref="SendThenListenOnceAsync{T1,T2,T3,T4,T5,T6, T7}" />
+    public async Task<ValueTuple<T1>> SendThenListenOnceAsync<T1>(
+        Func<TServerHubMethods, Task> sendAction,
+        Expression<Func<TClientListenerMethods, Func<T1, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (callbackMethodName, callbackParameterTypes) = ExtractMethodDetails(methodSelector);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1>)await ListenOnceCore(callbackMethodName, callbackParameterTypes,
+            timeout, cancellationToken,
+            sendAction);
+    }
+
+    /// <inheritdoc cref="SendThenListenOnceAsync{T1,T2,T3,T4,T5,T6, T7}" />
+    public async Task<ValueTuple<T1, T2>> SendThenListenOnceAsync<T1, T2>(
+        Func<TServerHubMethods, Task> sendAction,
+        Expression<Func<TClientListenerMethods, Func<T1, T2, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (callbackMethodName, callbackParameterTypes) = ExtractMethodDetails(methodSelector);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2>)await ListenOnceCore(callbackMethodName, callbackParameterTypes,
+            timeout, cancellationToken,
+            sendAction);
+    }
+
+    /// <inheritdoc cref="SendThenListenOnceAsync{T1,T2,T3,T4,T5,T6, T7}" />
+    public async Task<ValueTuple<T1, T2, T3>> SendThenListenOnceAsync<T1, T2, T3>(
+        Func<TServerHubMethods, Task> sendAction,
+        Expression<Func<TClientListenerMethods, Func<T1, T2, T3, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (callbackMethodName, callbackParameterTypes) = ExtractMethodDetails(methodSelector);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2, T3>)await ListenOnceCore(callbackMethodName, callbackParameterTypes,
+            timeout, cancellationToken,
+            sendAction);
+    }
+
+    /// <inheritdoc cref="SendThenListenOnceAsync{T1,T2,T3,T4,T5,T6, T7}" />
+    public async Task<ValueTuple<T1, T2, T3, T4>> SendThenListenOnceAsync<T1, T2, T3, T4>(
+        Func<TServerHubMethods, Task> sendAction,
+        Expression<Func<TClientListenerMethods, Func<T1, T2, T3, T4, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (callbackMethodName, callbackParameterTypes) = ExtractMethodDetails(methodSelector);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2, T3, T4>)await ListenOnceCore(callbackMethodName, callbackParameterTypes,
+            timeout, cancellationToken,
+            sendAction);
+    }
+
+    /// <inheritdoc cref="SendThenListenOnceAsync{T1,T2,T3,T4,T5,T6, T7}" />
+    public async Task<ValueTuple<T1, T2, T3, T4, T5>> SendThenListenOnceAsync<T1, T2, T3, T4, T5>(
+        Func<TServerHubMethods, Task> sendAction,
+        Expression<Func<TClientListenerMethods, Func<T1, T2, T3, T4, T5, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (callbackMethodName, callbackParameterTypes) = ExtractMethodDetails(methodSelector);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2, T3, T4, T5>)await ListenOnceCore(callbackMethodName, callbackParameterTypes,
+            timeout, cancellationToken,
+            sendAction);
+    }
+
+
+    /// <inheritdoc cref="SendThenListenOnceAsync{T1,T2,T3,T4,T5,T6, T7}" />
+    public async Task<ValueTuple<T1, T2, T3, T4, T5, T6>> SendThenListenOnceAsync<T1, T2, T3, T4, T5, T6>(
+        Func<TServerHubMethods, Task> sendAction,
+        Expression<Func<TClientListenerMethods, Func<T1, T2, T3, T4, T5, T6, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (callbackMethodName, callbackParameterTypes) = ExtractMethodDetails(methodSelector);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2, T3, T4, T5, T6>)await ListenOnceCore(callbackMethodName, callbackParameterTypes,
+            timeout, cancellationToken,
+            sendAction);
+    }
+
+
+    /// <summary>
+    ///     Sends a request to the server and listens for a one-time SignalR callback result from the server
+    ///     for a method with up to 7 parameters.
+    ///     This method ensures that the listener is registered before sending the request,
+    ///     preventing potential race conditions where the callback might be received before the listener is ready.
+    /// </summary>
+    /// <typeparam name="T1">The type of the first parameter returned by the callback.</typeparam>
+    /// <typeparam name="T2">The type of the second parameter returned by the callback.</typeparam>
+    /// <typeparam name="T3">The type of the third parameter returned by the callback.</typeparam>
+    /// <typeparam name="T4">The type of the fourth parameter returned by the callback.</typeparam>
+    /// <typeparam name="T5">The type of the fifth parameter returned by the callback.</typeparam>
+    /// <typeparam name="T6">The type of the sixth parameter returned by the callback.</typeparam>
+    /// <typeparam name="T7">The type of the seventh parameter returned by the callback.</typeparam>
+    /// <param name="sendAction">
+    ///     A function representing the action that sends a request to the server.
+    ///     This action is executed after the listener is registered.
+    /// </param>
+    /// <param name="methodSelector">
+    ///     An expression specifying the method in <typeparamref name="TClientListenerMethods" />
+    ///     to register as a one-time event listener.
+    /// </param>
+    /// <param name="timeout">
+    ///     Optional. A <see cref="TimeSpan" /> specifying the maximum duration to wait for the callback.
+    ///     If not provided, the default timeout is 1 minute.
+    /// </param>
+    /// <param name="cancellationToken">
+    ///     Optional. A <see cref="CancellationToken" /> that can be used to cancel the operation.
+    /// </param>
+    /// <returns>
+    ///     A <see cref="Task{TResult}" /> representing the asynchronous operation,
+    ///     with the result being a <see cref="ValueTuple{T1, T2, T3, T4, T5, T6, T7}" /> containing the callback parameters.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    ///     Thrown if tuple creation fails or if the received callback parameters do not match the expected types.
+    /// </exception>
+    /// <exception cref="TaskCanceledException">
+    ///     Thrown if the operation times out or is canceled.
+    /// </exception>
+    public async Task<ValueTuple<T1, T2, T3, T4, T5, T6, T7>> SendThenListenOnceAsync<T1, T2, T3, T4, T5, T6, T7>(
+        Func<TServerHubMethods, Task> sendAction,
+        Expression<Func<TClientListenerMethods, Func<T1, T2, T3, T4, T5, T6, T7, Task>>> methodSelector,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (callbackMethodName, callbackParameterTypes) = ExtractMethodDetails(methodSelector);
+
+        // Cast result to the expected tuple type
+        return (ValueTuple<T1, T2, T3, T4, T5, T6, T7>)await ListenOnceCore(callbackMethodName, callbackParameterTypes,
+            timeout, cancellationToken,
+            sendAction);
     }
 
     #endregion

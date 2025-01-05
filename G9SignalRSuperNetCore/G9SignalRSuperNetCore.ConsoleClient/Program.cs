@@ -50,7 +50,7 @@ internal class Program
         string authReason = null;
         await client.Authorize(
             "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$",
-            (result) =>
+            result =>
             {
                 isAccepted = result.IsAccepted;
                 authReason = result.RejectionReason;
@@ -106,6 +106,24 @@ internal class Program
             {
                 //await client.UploadFileAsync("Raspberry SIM7600 4G.mp4");
             }
+
+
+            if (message?.ToLower() == "result")
+                try
+                {
+                    var result = await client.SendThenListenOnceAsync<string, string>(
+                        sendPart => sendPart.TestResult("Test1", "Tset2"),
+                        s => s.TestResult);
+
+                    //var result2 = await client.ListenOnceAsync<string>(s => s.Replay);
+                    Console.WriteLine(
+                        $"Client Receive Result '{result.Item1}|{result.Item2}' by method: {nameof(client.ListenOnceAsync)}");
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                    throw;
+                }
 
             await client.Server.Replay(message);
         }

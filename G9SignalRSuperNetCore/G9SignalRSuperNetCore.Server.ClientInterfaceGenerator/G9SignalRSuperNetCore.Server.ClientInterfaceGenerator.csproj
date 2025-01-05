@@ -5,9 +5,9 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-		<Version>1.0.1.6</Version>
-		<AssemblyVersion>1.0.1.6</AssemblyVersion>
-		<FileVersion>1.0.1.6</FileVersion>
+		<Version>1.0.1.7</Version>
+		<AssemblyVersion>1.0.1.7</AssemblyVersion>
+		<FileVersion>1.0.1.7</FileVersion>
 		<PackageIcon>G9-Icon.png</PackageIcon>
 		<PackageLicenseFile>LICENSE.md</PackageLicenseFile>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>

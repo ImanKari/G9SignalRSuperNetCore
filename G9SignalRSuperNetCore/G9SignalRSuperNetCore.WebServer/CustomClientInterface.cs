@@ -10,4 +10,5 @@ public interface CustomClientInterface
 
     public Task Replay(string message);
 
+    Task TestResult(string result1, string result2);
 }

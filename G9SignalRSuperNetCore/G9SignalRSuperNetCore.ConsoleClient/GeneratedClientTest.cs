@@ -185,6 +185,8 @@ public interface ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth
 
     Task Replay(string message);
 
+    Task TestResult(string result1, string result2);
+
 }
 
 /// <summary>
@@ -201,6 +203,7 @@ public interface ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
     Task LoginResult(bool accepted);
     Task Replay(string message);
 
+    Task TestResult(string result1, string result2);
 }
 
 /// <summary>
@@ -238,6 +241,12 @@ public class CustomHubWithJWTAuthAndSessionClientWithJWTAuth : G9SignalRSuperNet
     public Task Replay(string message)
     {
         Console.WriteLine($"Method: {nameof(Replay)}, Result: {message}");
+        return Task.CompletedTask;
+    }
+
+    public Task TestResult(string result1, string result2)
+    {
+        Console.WriteLine($"Method: {nameof(TestResult)}, Result: {{result1}}|{{result2}}");
         return Task.CompletedTask;
     }
 }
