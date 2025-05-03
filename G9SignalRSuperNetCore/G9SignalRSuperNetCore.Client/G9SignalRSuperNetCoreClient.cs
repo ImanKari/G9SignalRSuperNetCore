@@ -213,17 +213,10 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
     ///     A generator for creating proxy instances of the server methods.
     /// </summary>
     /// <typeparam name="TInterface">The server interface type.</typeparam>
-    private class ProxyGenerator<TInterface>
+    private class ProxyGenerator<TInterface>(
+        G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethods, TClientListenerMethods> client)
         where TInterface : class
     {
-        private readonly G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethods, TClientListenerMethods> _client;
-
-        public ProxyGenerator(
-            G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethods, TClientListenerMethods> client)
-        {
-            _client = client;
-        }
-
         /// <summary>
         ///     Creates a proxy implementation for the server interface.
         /// </summary>
@@ -231,34 +224,81 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
         public TInterface GetProxy()
         {
             var generator = new ProxyGenerator();
-            var interceptor = new ServerMethodInterceptor(_client.Connection);
+            var interceptor = new ServerMethodInterceptor(client.Connection);
             return generator.CreateInterfaceProxyWithoutTarget<TInterface>(interceptor);
         }
     }
 
     /// <summary>
-    ///     Intercepts method calls to the server and sends them via the SignalR connection.
+    ///     Intercepts method calls to the server and routes them through the SignalR <see cref="HubConnection" />.
+    ///     Handles both non-returning <see cref="Task" /> methods and returning <see cref="Task{T}" /> methods dynamically.
     /// </summary>
-    private class ServerMethodInterceptor : IInterceptor
+    public class ServerMethodInterceptor : IInterceptor
     {
+        // Cache method info to avoid repeated reflection costs
+        private static readonly MethodInfo s_convertTaskResultGenericMethod =
+            typeof(ServerMethodInterceptor)
+                .GetMethod(nameof(ConvertTaskResult), BindingFlags.NonPublic | BindingFlags.Static)!;
+
         private readonly HubConnection _connection;
 
+        /// <summary>
+        ///     Initializes a new instance of the <see cref="ServerMethodInterceptor" /> class with the provided SignalR
+        ///     connection.
+        /// </summary>
+        /// <param name="connection">The active <see cref="HubConnection" /> to the SignalR server.</param>
         public ServerMethodInterceptor(HubConnection connection)
         {
             _connection = connection;
         }
 
         /// <summary>
-        ///     Intercepts and processes the method invocation.
+        ///     Intercepts method calls made to the server interface and redirects them through SignalR.
         /// </summary>
-        /// <param name="invocation">The intercepted method invocation.</param>
+        /// <param name="invocation">The invocation context that includes method info and arguments.</param>
         public void Intercept(IInvocation invocation)
         {
             var methodName = invocation.Method.Name;
             var arguments = invocation.Arguments;
+            var returnType = invocation.Method.ReturnType;
 
-            var task = _connection.SendCoreAsync(methodName, arguments);
-            invocation.ReturnValue = task;
+            // Handle non-generic Task (void return)
+            if (returnType == typeof(Task))
+            {
+                // Use object as dummy type, then discard result
+                var rawTask = _connection.InvokeCoreAsync(methodName, typeof(object), arguments, CancellationToken.None);
+                invocation.ReturnValue = ConvertTaskResult<object>(rawTask);
+                return;
+            }
+
+            // Handle Task<T> with result
+            if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(Task<>))
+            {
+                var resultType = returnType.GenericTypeArguments[0];
+
+                // InvokeCoreAsync<T> returns Task<object?>, need to convert to Task<T>
+                var rawTask = _connection.InvokeCoreAsync(methodName, resultType, arguments, CancellationToken.None);
+
+                // Call ConvertTaskResult<T> via reflection
+                var convertMethod = s_convertTaskResultGenericMethod.MakeGenericMethod(resultType);
+                invocation.ReturnValue = convertMethod.Invoke(null, [rawTask])!;
+                return;
+            }
+
+            throw new NotSupportedException(
+                $"Return type '{returnType}' is not supported for SignalR method '{methodName}'.");
+        }
+
+        /// <summary>
+        ///     Converts a <see cref="Task{Object}" /> to <see cref="Task{T}" /> by casting the result.
+        /// </summary>
+        /// <typeparam name="T">The expected result type of the task.</typeparam>
+        /// <param name="task">The task to convert.</param>
+        /// <returns>A task returning a strongly-typed result.</returns>
+        private static async Task<T> ConvertTaskResult<T>(Task<object?> task)
+        {
+            var result = await task.ConfigureAwait(false);
+            return (T)result!;
         }
     }
 
@@ -289,11 +329,7 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
         var (methodName, parameterTypes) = ExtractMethodDetails(methodSelector);
 
         // Register the SignalR hub event
-        Connection.On(methodName, parameterTypes, args =>
-        {
-            // Invoke the implementation with the provided arguments
-            return InvokeImplementation(implementation, args);
-        });
+        Connection.On(methodName, parameterTypes, args => InvokeImplementation(implementation, args));
     }
 
     /// <summary>
@@ -323,6 +359,7 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
     ///     and the delegate to ensure type safety.
     /// </remarks>
     private (string methodName, Type[] parameterTypes) ExtractMethodDetails<TDelegate>(
+        // ReSharper disable once EntityNameCapturedOnly.Local
         Expression<Func<TClientListenerMethods, TDelegate>> methodSelector)
     {
         // Get the method info from the interface type by finding a method whose parameters match the delegate
@@ -337,7 +374,7 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
                 // Check if parameter counts match and all parameter types are identical
                 return delegateParams != null &&
                        methodParams.Length == delegateParams.Length &&
-                       methodParams.Zip(delegateParams, (m, d) => m.ParameterType == d.ParameterType).All(x => x);
+                       methodParams.Zip(delegateParams, (info, d) => info.ParameterType == d.ParameterType).All(x => x);
             })
             ?.Name ?? throw new ArgumentException("Could not find matching method.", nameof(methodSelector));
 
@@ -346,7 +383,7 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
             .GetMethod("Invoke")
             ?.GetParameters()
             .Select(p => p.ParameterType)
-            .ToArray() ?? Array.Empty<Type>();
+            .ToArray() ?? [];
 
         return (methodName, parameterTypes);
     }

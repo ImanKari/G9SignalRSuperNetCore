@@ -179,7 +179,7 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
             await _authConnection.StartAsync();
 
             // Send the authorization request
-            await _authConnection.SendCoreAsync("Authorize", new[] { authorizeData });
+            await _authConnection.SendCoreAsync("Authorize", [authorizeData]);
         }
         catch (Exception ex)
         {

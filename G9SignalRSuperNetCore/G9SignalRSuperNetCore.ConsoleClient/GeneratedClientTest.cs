@@ -1,4 +1,5 @@
 ﻿using G9SignalRSuperNetCore.Client;
+using G9SignalRSuperNetCore.ConsoleClient;
 using Microsoft.AspNetCore.Http.Connections.Client;
 using Microsoft.AspNetCore.SignalR.Client;
 /* ---------------------------------------------------------------
@@ -184,8 +185,24 @@ public interface ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth
     /// <param name="message">Okay</param>
 
     Task Replay(string message);
-
     Task TestResult(string result1, string result2);
+    Task TestClientCall(string result1, string result2);
+    /// <summary>
+    /// Hub method with return value for test
+    /// </summary>
+    /// <returns>
+    /// A test list for test
+    /// </returns>
+
+    Task<List<string>> GetList();
+    /// <summary>
+    /// Hub method with return value for test
+    /// </summary>
+    /// <returns>
+    /// A test list for test
+    /// </returns>
+
+    Task<DtSimpleResultWithExtraData> GetDataType();
 
 }
 
@@ -202,8 +219,8 @@ public interface ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
 
     Task LoginResult(bool accepted);
     Task Replay(string message);
-
     Task TestResult(string result1, string result2);
+
 }
 
 /// <summary>
@@ -246,7 +263,7 @@ public class CustomHubWithJWTAuthAndSessionClientWithJWTAuth : G9SignalRSuperNet
 
     public Task TestResult(string result1, string result2)
     {
-        Console.WriteLine($"Method: {nameof(TestResult)}, Result: {{result1}}|{{result2}}");
+        Console.WriteLine($"Method: {nameof(TestResult)}, Result: {result1}|{result2}");
         return Task.CompletedTask;
     }
 }

@@ -40,7 +40,8 @@ public class CustomHubWithJWTAuthAndSession : G9AHubBaseWithSessionAndJWTAuth<Cu
             "jg93w4t9swhuwgvosedrgf029ptg2qw38r0dfgw239p84521039r8hwaqfy8o923519723rgfw923w4ty#$&Y#$WUYHW#$&YW@#$TG@#$^#$")
             return Task.FromResult<(G9JWTokenFactory, object?)>((jwToken, "This Is Awesome"));
 
-        return Task.FromResult<(G9JWTokenFactory, object?)>((G9JWTokenFactory.RejectAuthorize("Incorrect Authorize Data!"), "This Is Awesome"));
+        return Task.FromResult<(G9JWTokenFactory, object?)>((
+            G9JWTokenFactory.RejectAuthorize("Incorrect Authorize Data!"), "This Is Awesome"));
     }
 
 
@@ -75,5 +76,30 @@ public class CustomHubWithJWTAuthAndSession : G9AHubBaseWithSessionAndJWTAuth<Cu
         Console.WriteLine($"Server Method: {nameof(TestResult)}, Receive: {result1}|{result2}");
         await Clients.Caller.TestResult($"Server Received First: {result1}",
             $"Server Received Second: {result2}");
+    }
+
+
+    /// <summary>
+    ///     Hub method with return value for test
+    /// </summary>
+    /// <returns>A test list for test</returns>
+    public async Task<List<string>> GetList()
+    {
+        var list = new List<string>();
+        for (var i = 0; i < 100; i++)
+            list.Add($"Item {i}");
+        return await Task.FromResult(list);
+    }
+
+    /// <summary>
+    ///     Hub method with return value for test
+    /// </summary>
+    /// <returns>A test list for test</returns>
+    public async Task<DtSimpleResultWithExtraData> GetDataType()
+    {
+        var list = new List<string>();
+        for (var i = 0; i < 100; i++)
+            list.Add($"Item {i}");
+        return await Task.FromResult(DtSimpleResultWithExtraData.True(list));
     }
 }

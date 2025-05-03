@@ -161,6 +161,22 @@ public interface ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth
 
     Task Replay(string message);
     Task TestResult(string result1, string result2);
+    /// <summary>
+    /// Hub method with return value for test
+    /// </summary>
+    /// <returns>
+    /// A test list for test
+    /// </returns>
+
+    Task<List<string>> GetList();
+    /// <summary>
+    /// Hub method with return value for test
+    /// </summary>
+    /// <returns>
+    /// A test list for test
+    /// </returns>
+
+    Task<DtSimpleResultWithExtraData> GetDataType();
 
 }
 

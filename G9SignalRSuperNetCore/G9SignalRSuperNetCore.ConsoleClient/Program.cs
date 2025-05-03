@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Text.Json;
 
 namespace G9SignalRSuperNetCore.ConsoleClient;
 
@@ -86,6 +87,21 @@ internal class Program
                     return Task.CompletedTask;
                 });
 
+            var receiveListDataTest = await client.Server.GetList();
+
+            if (receiveListDataTest.Count == 100)
+                Console.WriteLine($"Calling method with return value occurs successfully, Count: {receiveListDataTest.Count}");
+            else
+                throw new Exception("Receiving value from method with return value is failed!");
+
+            var receiveDataTypeTest = await client.Server.GetDataType();
+
+            if (!receiveDataTypeTest.RequestStatus)
+                throw new Exception("Receiving value from method with return value is failed!");
+
+            var itemList = JsonSerializer.Deserialize<List<string>>(receiveDataTypeTest.Data.ToString());
+            Console.WriteLine($"Calling method with return value occurs successfully, Count: {itemList.Count}");
+
             while (true)
             {
                 Console.WriteLine("Enter command or message:");
@@ -96,7 +112,6 @@ internal class Program
                 {
                     //await client.UploadFileAsync("Raspberry SIM7600 4G.mp4");
                 }
-
 
                 if (message?.ToLower() == "result")
                     try
