@@ -8,6 +8,11 @@ namespace G9SignalRSuperNetCore.Server.Classes.Helper;
 /// </summary>
 public class G9CAlwaysDenyRequirement : IAuthorizationRequirement
 {
+    /// <summary>
+    ///     The name of the authorization policy that always denies access.
+    ///     Used internally by the framework to reject method-level access through
+    ///     <see cref="Attributes.G9AttrDenyAccessAttribute" />.
+    /// </summary>
     public const string DenyPolicyName = "[G9AlwaysDenyG9]";
     // This class doesn't hold any logic. It's simply a marker used to indicate
     // that authorization should always fail. It implements IAuthorizationRequirement

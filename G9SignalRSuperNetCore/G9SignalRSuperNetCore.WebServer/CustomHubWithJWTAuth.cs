@@ -56,7 +56,7 @@ public class CustomHubWithJWTAuth : G9AHubBaseWithJWTAuth<CustomHubWithJWTAuth, 
     public async Task Replay(string message)
     {
         var user = Context.User;
-        Context.User.IsInRole("admin");
+        user?.IsInRole("admin");
         Console.WriteLine(Context.ConnectionId);
         await Clients.Caller.Replay(message);
     }

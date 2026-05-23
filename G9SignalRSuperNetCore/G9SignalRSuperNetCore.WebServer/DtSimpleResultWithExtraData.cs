@@ -2,7 +2,7 @@
 
 public class DtSimpleResultWithExtraData : DtSimpleResult
 {
-    public object Data { set; get; }
+    public object? Data { set; get; }
 
     public static DtSimpleResultWithExtraData True(object data)
     {

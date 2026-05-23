@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>net9.0</TargetFramework>
+		<TargetFramework>net10.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 
@@ -38,24 +38,19 @@
 	<ItemGroup>
 		<None Update="G9-Icon.png">
 			<Pack>True</Pack>
+			<PackagePath>\</PackagePath>
 		</None>
 		<None Update="LICENSE.md">
 			<CopyToOutputDirectory>Never</CopyToOutputDirectory>
-		</None>
-		<None Include="G9-Icon.png">
 			<Pack>True</Pack>
-			<PackagePath></PackagePath>
-		</None>
-		<None Include="LICENSE.md">
-			<Pack>True</Pack>
-			<PackagePath></PackagePath>
+			<PackagePath>\</PackagePath>
 		</None>
 	</ItemGroup>
 
 	<ItemGroup>
 		<PackageReference Include="G9AssemblyManagement" Version="1.4.5.25" />
-		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.9.0" />
-		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.4" />
+		<PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.18.0" />
+		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
 	</ItemGroup>
 
 	<ItemGroup>

@@ -461,9 +461,6 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
     ///     The implementation must match the selected method's signature exactly, including parameter types and the return
     ///     type.
     /// </param>
-    /// <typeparam name="TClientListenerMethods">
-    ///     The interface type defining the SignalR client listener methods.
-    /// </typeparam>
     /// <exception cref="ArgumentException">
     ///     Thrown if the method selector expression is invalid or does not represent a compatible method.
     /// </exception>

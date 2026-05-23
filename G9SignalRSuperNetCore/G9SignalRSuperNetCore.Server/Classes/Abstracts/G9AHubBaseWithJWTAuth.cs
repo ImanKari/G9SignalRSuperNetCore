@@ -92,12 +92,13 @@ public abstract class G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInte
     ///     during the authentication process.
     /// </param>
     /// <returns>
-    ///     A <see cref="Task{ValueTuple{G9JWTokenFactory, object?}}" /> representing the asynchronous operation.
-    ///     The result is a tuple containing:
+    ///     A <see cref="Task" /> that returns a tuple of (<see cref="G9JWTokenFactory" />, <see cref="object" />?)
+    ///     representing the asynchronous operation. The result tuple contains:
     ///     <para />
     ///     - A <see cref="G9JWTokenFactory" /> instance with the generated JWT token if authentication is successful.
     ///     <para />
-    ///     - Any additional data related to the authentication process, which may be returned as `null` if not applicable.
+    ///     - Any additional data related to the authentication process, which may be returned as <c>null</c> if not
+    ///     applicable.
     /// </returns>
     [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]

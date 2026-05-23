@@ -99,7 +99,8 @@ internal class Program
             if (!receiveDataTypeTest.RequestStatus)
                 throw new Exception("Receiving value from method with return value is failed!");
 
-            var itemList = JsonSerializer.Deserialize<List<string>>(receiveDataTypeTest.Data.ToString());
+            var dataJson = receiveDataTypeTest.Data?.ToString() ?? "[]";
+            var itemList = JsonSerializer.Deserialize<List<string>>(dataJson) ?? new List<string>();
             Console.WriteLine($"Calling method with return value occurs successfully, Count: {itemList.Count}");
 
             while (true)
@@ -130,7 +131,7 @@ internal class Program
                         throw;
                     }
 
-                await client.Server.Replay(message);
+                await client.Server.Replay(message ?? string.Empty);
             }
         }
 

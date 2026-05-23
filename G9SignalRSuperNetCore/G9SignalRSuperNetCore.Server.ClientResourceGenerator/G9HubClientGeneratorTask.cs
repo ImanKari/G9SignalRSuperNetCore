@@ -164,8 +164,6 @@ public class G9HubClientGeneratorTask : Task
         var isSessionAndJwtAuthHub = hubClass.BaseList.Types
             .Any(baseType => baseType.ToString().Contains("G9AHubBaseWithSessionAndJWTAuth"));
 
-        var authTypeComments = @"// The data type used for authentication (e.g., credentials, token information).
-// This is a type introduced to support flexible authentication methods.";
         //var (authTypeName, authTypeDefinition) = ExtractAuthenticationType(hubClass, className);
 
         if (isJwtAuthHub || isSessionAndJwtAuthHub)
