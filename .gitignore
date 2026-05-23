@@ -360,3 +360,11 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# G9SignalRSuperNetCore — runtime artifacts
+**/uploads/
+**/.partial/
+
+# Console-test scratch files (excluded except the canonical test payload)
+build.log
+files.txt

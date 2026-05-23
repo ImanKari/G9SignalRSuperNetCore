@@ -22,12 +22,18 @@
 		<PackageReference Include="Consolonia" Version="11.3.7-beta.1831" />
 	</ItemGroup>
 
+	<!-- Default test payload for the file-upload tab. Copied to bin/ on build when present so
+	     the default relative path "file_upload_test.zip" Just Works at runtime. -->
+	<ItemGroup Condition="Exists('file_upload_test.zip')">
+		<None Include="file_upload_test.zip">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
 	<ItemGroup>
 		<ProjectReference Include="..\G9SignalRSuperNetCore.Client\G9SignalRSuperNetCore.Client.csproj" />
 		<ProjectReference Include="..\G9SignalRSuperNetCore.Sample.Shared\G9SignalRSuperNetCore.Sample.Shared.csproj" />
-		<ProjectReference Include="..\G9SignalRSuperNetCore.SourceGenerator\G9SignalRSuperNetCore.SourceGenerator.csproj"
-		                  OutputItemType="Analyzer"
-		                  ReferenceOutputAssembly="false" />
+		<ProjectReference Include="..\G9SignalRSuperNetCore.SourceGenerator\G9SignalRSuperNetCore.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 	</ItemGroup>
 
 </Project>

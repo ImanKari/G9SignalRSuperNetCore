@@ -2,41 +2,101 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="G9SignalRSuperNetCore.ConsoleClient.MainWindow"
         RequestedThemeVariant="Dark"
-        Title="G9 SignalR — Console Test Harness">
+        Title="G9SignalRSuperNetCore — Console Test Harness">
     <DockPanel LastChildFill="True">
-        <Border DockPanel.Dock="Top">
-            <StackPanel Orientation="Vertical">
-                <TextBlock Text="G9SignalRSuperNetCore — Console Test Harness" />
-                <TextBlock Text="Connect, send chat messages, watch live callbacks." />
-            </StackPanel>
-        </Border>
 
+        <!-- Status bar (top) -->
         <Border DockPanel.Dock="Top">
-            <StackPanel Orientation="Vertical">
-                <DockPanel>
-                    <TextBlock Text="Server: " VerticalAlignment="Center" />
-                    <TextBox Name="ServerUrlBox" Text="https://localhost:7159" />
-                </DockPanel>
-                <DockPanel>
-                    <TextBlock Text="Name:   " VerticalAlignment="Center" />
-                    <TextBox Name="UserNameBox" Text="Iman" />
-                </DockPanel>
-                <StackPanel Orientation="Horizontal">
-                    <Button Name="ConnectButton" Content="[ Connect ]" />
-                    <Button Name="DisconnectButton" Content="[ Disconnect ]" IsEnabled="False" />
-                    <Button Name="GetRecentButton" Content="[ Recent ]" IsEnabled="False" />
-                    <Button Name="ExitButton" Content="[ Exit ]" />
-                </StackPanel>
-            </StackPanel>
-        </Border>
-
-        <Border DockPanel.Dock="Bottom">
             <DockPanel>
-                <Button Name="SendButton" Content="[ Send ]" DockPanel.Dock="Right" IsEnabled="False" />
-                <TextBox Name="MessageBox" Text="Hello from Consolonia!" />
+                <TextBlock Name="StatusText" Text=" G9SignalRSuperNetCore  |  Disconnected " DockPanel.Dock="Left" />
+                <Button Name="ExitButton" Content="[ Exit ]" DockPanel.Dock="Right" />
             </DockPanel>
         </Border>
 
-        <ListBox Name="LogList" />
+        <!-- Tabs (main body) -->
+        <TabControl Name="MainTabs">
+
+            <!-- TAB 1: Connection -->
+            <TabItem Header="Connection">
+                <StackPanel Orientation="Vertical">
+                    <DockPanel>
+                        <TextBlock Text="Server URL:  " VerticalAlignment="Center" />
+                        <TextBox Name="ServerUrlBox" Text="https://localhost:7159" />
+                    </DockPanel>
+                    <DockPanel>
+                        <TextBlock Text="Display name: " VerticalAlignment="Center" />
+                        <TextBox Name="UserNameBox" Text="Iman" />
+                    </DockPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Name="ConnectButton" Content="[ Connect ]" />
+                        <Button Name="DisconnectButton" Content="[ Disconnect ]" IsEnabled="False" />
+                        <Button Name="ClearConnectionButton" Content="[ Clear log ]" />
+                    </StackPanel>
+                    <TextBlock Text="Connection log:" />
+                    <ListBox Name="ConnectionLog" />
+                </StackPanel>
+            </TabItem>
+
+            <!-- TAB 2: Chat -->
+            <TabItem Header="Chat">
+                <DockPanel LastChildFill="True">
+                    <DockPanel DockPanel.Dock="Bottom">
+                        <Button Name="SendButton" Content="[ Send ]" DockPanel.Dock="Right" IsEnabled="False" />
+                        <TextBox Name="MessageBox" Text="G9SignalRSuperNetCore" />
+                    </DockPanel>
+                    <Button Name="ClearChatButton" Content="[ Clear log ]" DockPanel.Dock="Top" />
+                    <ListBox Name="ChatLog" />
+                </DockPanel>
+            </TabItem>
+
+            <!-- TAB 3: Recent messages -->
+            <TabItem Header="Recent">
+                <DockPanel LastChildFill="True">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Top">
+                        <Button Name="GetRecentButton" Content="[ Fetch recent ]" IsEnabled="False" />
+                        <Button Name="ClearRecentButton" Content="[ Clear log ]" />
+                    </StackPanel>
+                    <ListBox Name="RecentLog" />
+                </DockPanel>
+            </TabItem>
+
+            <!-- TAB 4: File upload -->
+            <TabItem Header="File upload">
+                <StackPanel Orientation="Vertical">
+                    <DockPanel>
+                        <TextBlock Text="File path: " VerticalAlignment="Center" />
+                        <Button Name="BrowseButton" Content="[ Browse... ]" DockPanel.Dock="Right" />
+                        <TextBox Name="UploadPathBox" Text="file_upload_test.zip" />
+                    </DockPanel>
+                    <DockPanel>
+                        <TextBlock Text="Chunk size (KB): " VerticalAlignment="Center" />
+                        <TextBox Name="ChunkSizeBox" Text="64" />
+                    </DockPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Name="UploadButton" Content="[ Upload ]" IsEnabled="False" />
+                        <Button Name="CancelUploadButton" Content="[ Cancel ]" IsEnabled="False" />
+                        <Button Name="ClearUploadButton" Content="[ Clear log ]" />
+                    </StackPanel>
+                    <TextBlock Name="UploadStatus" Text="No upload in flight." />
+                    <ProgressBar Name="UploadBar" Minimum="0" Maximum="100" Value="0" />
+                    <TextBlock Text="Upload log:" />
+                    <ListBox Name="UploadLog" />
+                </StackPanel>
+            </TabItem>
+
+            <!-- TAB 5: Rate-limit test -->
+            <TabItem Header="Rate limit">
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="Sends 20 SendMessage calls in a tight loop. The hub method is" />
+                    <TextBlock Text="decorated with [G9AttrRateLimit(perSecond: 5, burst: 10)]." />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Name="RateLimitButton" Content="[ Run rate-limit burst ]" IsEnabled="False" />
+                        <Button Name="ClearRateLimitButton" Content="[ Clear log ]" />
+                    </StackPanel>
+                    <TextBlock Text="Outcome log (G9_RATE_LIMITED expected after burst):" />
+                    <ListBox Name="RateLimitLog" />
+                </StackPanel>
+            </TabItem>
+        </TabControl>
     </DockPanel>
 </Window>
