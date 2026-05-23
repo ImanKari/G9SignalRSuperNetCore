@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Security.Claims;
 using G9SignalRSuperNetCore.Server.Classes.Abstracts;
+using G9SignalRSuperNetCore.Server.Classes.Filters;
 using G9SignalRSuperNetCore.Server.Classes.Helper;
 using G9SignalRSuperNetCore.Server.Classes.Hubs;
 using G9SignalRSuperNetCore.Server.Classes.Sessions;
@@ -61,10 +62,25 @@ public static class G9SignalRSuperNetCoreServer
 
             services.AddSingleton<IAuthorizationHandler, G9CAlwaysDenyHandler>();
 
+            // Singleton hub filter that enforces every G9 attribute (rate limit, connection
+            // limit, role/claim requirements, telemetry). Hubs that use no attributes pay
+            // only the cost of one dictionary lookup per call.
+            services.AddSingleton<G9CHubFilter>();
+
             services.AddSignalR(option =>
             {
                 option.KeepAliveInterval = TimeSpan.FromSeconds(10);
                 option.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
+
+                // SignalR's default MaximumReceiveMessageSize is 32 KB, which is too small for
+                // the resumable file-upload feature. The default JSON HubProtocol base64-encodes
+                // byte[] arguments, expanding a 64 KB binary chunk to ~85 KB on the wire — that
+                // exceeds 32 KB and the server silently aborts the connection on the first chunk.
+                // Bumping the cap to 4 MB lets clients pick chunk sizes up to ~3 MB without any
+                // additional configuration. Consumers can still override this via configureSignalROptions.
+                option.MaximumReceiveMessageSize = 4 * 1024 * 1024;
+
+                option.AddFilter<G9CHubFilter>();
                 configureSignalROptions?.Invoke(option);
             });
         }
@@ -81,6 +97,25 @@ public static class G9SignalRSuperNetCoreServer
         where TSession : G9ASession, new()
     {
         services.AddSingleton<IG9SessionStore<TSession>, G9CInMemorySessionStore<TSession>>();
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers the resumable file-upload service. Files are stored under
+    ///     <see cref="G9SignalRSuperNetCore.Server.Classes.FileUpload.G9DtUploadOptions.RootDirectory"/>
+    ///     (default <c>./uploads</c>) with partials in a hidden subfolder.
+    /// </summary>
+    /// <param name="services">DI service collection.</param>
+    /// <param name="configure">Optional callback to customize <see cref="G9SignalRSuperNetCore.Server.Classes.FileUpload.G9DtUploadOptions"/>.</param>
+    public static IServiceCollection AddG9SignalRSuperNetCoreFileUpload(
+        this IServiceCollection services,
+        Action<G9SignalRSuperNetCore.Server.Classes.FileUpload.G9DtUploadOptions>? configure = null)
+    {
+        if (configure is not null) services.Configure(configure);
+        else services.AddOptions<G9SignalRSuperNetCore.Server.Classes.FileUpload.G9DtUploadOptions>();
+
+        services.AddSingleton<G9SignalRSuperNetCore.Server.Classes.FileUpload.IG9UploadService,
+            G9SignalRSuperNetCore.Server.Classes.FileUpload.G9CUploadService>();
         return services;
     }
 

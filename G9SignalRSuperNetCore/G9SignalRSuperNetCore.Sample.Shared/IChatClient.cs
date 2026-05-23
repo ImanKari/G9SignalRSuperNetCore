@@ -1,3 +1,5 @@
+using G9SignalRSuperNetCore.Server.Classes.FileUpload;
+
 namespace G9SignalRSuperNetCore.Sample.Shared;
 
 /// <summary>
@@ -22,4 +24,8 @@ public interface IChatClient
     /// <summary>Acknowledges the result of a login attempt.</summary>
     /// <param name="accepted">True when the credentials were accepted.</param>
     Task LoginResult(bool accepted);
+
+    /// <summary>Server-pushed file-upload progress.</summary>
+    /// <param name="progress">The current bytes-received state.</param>
+    Task UploadProgress(G9DtUploadProgress progress);
 }
