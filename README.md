@@ -19,6 +19,7 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ## Table of contents
 
 - [What's new](#whats-new)
+  - [2.2 / 2.3 / 2.4 — Groups & presence, streaming & resilience, distributed & secure](#22--23--24--groups--presence-streaming--resilience-distributed--secure)
   - [2.1 — Policy attributes + resumable file upload](#21--policy-attributes--resumable-file-upload)
   - [2.0 — Foundation hardening (Sept 2026)](#20--foundation-hardening-sept-2026)
 - [Why this library](#why-this-library)
@@ -37,6 +38,12 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 - [Client features](#client-features)
 - [Policy attributes](#policy-attributes)
 - [Resumable file upload](#resumable-file-upload)
+- [Resumable file download](#resumable-file-download)
+- [Groups and presence](#groups-and-presence)
+- [Server streams with backpressure](#server-streams-with-backpressure)
+- [Resilient client reconnect](#resilient-client-reconnect)
+- [App-level encryption (no TLS required)](#app-level-encryption-no-tls-required)
+- [Distributed backplane (interface)](#distributed-backplane-interface)
 - [Telemetry, metrics, and stable error codes](#telemetry-metrics-and-stable-error-codes)
 - [JWT helper](#jwt-helper)
 - [Scaling to many connections](#scaling-to-many-connections)
@@ -52,6 +59,52 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ---
 
 ## What's new
+
+### 2.2 / 2.3 / 2.4 — Groups & presence, streaming & resilience, distributed & secure
+
+This release closes out Bundles 3, 4, and 5 in a single combined drop.
+
+**Bundle 3 — Groups & presence**
+
+- `G9CGroupManager<THub>` — strongly-typed in-process group index built on top of SignalR's group machinery. Lock-free membership through `ConcurrentDictionary<string, ConcurrentDictionary<string, byte>>`, snapshots via `ToArray`, automatic prune of empty groups. Resolved through `services.AddG9SignalRSuperNetCoreGroups<THub>()`.
+- `G9CPresenceTracker` — per-user connection counts in a single `ConcurrentDictionary<string, int>`. `OnConnected` / `OnDisconnected` are lock-free; transitions between online and offline are published to a `Channel<G9DtPresenceEvent>` so a hosted service or any subscriber can fan them out. Resolved through `services.AddG9SignalRSuperNetCorePresence()`.
+- `[G9AttrPresenceTracked]` (class-level) — opt-in flag the central hub filter reads on connect/disconnect to invoke the tracker. Hubs without the attribute pay no extra work.
+- `[G9AttrAutoJoinGroup("name")]` (class-level, repeatable) — every new connection is added to the listed groups before `OnConnectedAsync` runs. Implemented as a hub-typed `G9CAutoJoinFilter<THub>`, registered automatically when you call `AddG9SignalRSuperNetCoreGroups<THub>()`. AOT-safe (the generic argument is resolved at compile time).
+- The sample `ChatHub` carries `[G9AttrPresenceTracked]` plus `[G9AttrAutoJoinGroup("lobby")]`, and exposes `JoinRoom`, `LeaveRoom`, `SendToRoom`, `ListRoomMembers`, `ListOnlineUsers`. The console harness has a Rooms tab that exercises every method.
+
+**Bundle 4 — Streaming & resilience**
+
+- `G9CResilientStream.Create<T>(options)` — bounded producer/consumer pair that completes the channel deterministically (avoids the canonical SignalR streaming footgun where a thrown exception leaves the channel hanging open).
+- `G9DtStreamOptions` — capacity plus drop policy: `Wait`, `DropNewest`, `DropOldest`.
+- `[G9AttrStreamBackpressure(capacity, dropPolicy)]` — declarative backpressure metadata. Hub authors can read it back through reflection (`GetCustomAttribute<…>().ToOptions()`) when constructing the stream.
+- `G9CClientReconnectPolicy` (client) — drop-in replacement for `WithAutomaticReconnect()` with exponential backoff plus ±15% jitter, configurable max delay, max elapsed time. Wired by default into the generated client base.
+- The sample `ChatHub` exposes `LiveTickerStream(count, intervalMs, ct)` (server→client `IAsyncEnumerable<int>`) decorated with `[G9AttrStreamBackpressure(64, Wait)]`, plus `BulkCounterStream(IAsyncEnumerable<int>)` for client→server. The console harness has a Streaming tab with Start/Stop ticker plus a Push 100 → server button (expected total 5050).
+
+**Bundle 5 — Distributed & secure (no-TLS encryption)**
+
+- `G9CHandshake` — managed ECDH P-256 + HKDF-SHA-256 + ChaCha20-Poly1305. Pure `System.Security.Cryptography`: AOT-safe, FIPS-validated on every supported platform, hardware-accelerated on x86-AESNI / Arm-NEON. Why P-256 not X25519/Noise IK: the BCL ships P-256 ECDHE through `ECDiffieHellman` and a vetted `ChaCha20Poly1305`; pulling in third-party crypto would defeat the AOT/MAUI promise, and ECDHE-static + AEAD gives equivalent security guarantees.
+- 65-byte SEC1 uncompressed wire format for public keys, 12-byte nonce + ciphertext + 16-byte tag for sealed envelopes.
+- `G9CSessionSealer` — per-connection session-key cache. Once a connection has performed `BeginSession`, hub methods can `Seal` / `Open` payloads without round-tripping the ephemeral public key on every call. Keys are zeroed on disconnect by the central hub filter.
+- `[G9AttrEncrypted]` — declarative contract on hub methods that work in `byte[]` envelopes.
+- `IG9DistributedBackplane` — minimal publish/subscribe abstraction so the in-process group manager and presence tracker can be replaced with a Redis or NATS implementation when scaling out. Default registration is a no-op `G9CInProcessBackplane` for single-process deployments. SignalR's own Redis backplane handles message fan-out; this interface handles the G9-specific membership state.
+- The sample `ChatHub` exposes `GetServerPublicKey()`, `EncryptedEcho(byte[] ephemeralPub, byte[] envelope)` (one-shot), `BeginSession(byte[] ephemeralPub)` plus `EncryptedEchoSession(byte[] envelope)` (cached). The console harness has an Encrypted tab that runs the full round-trip and prints the SHA-256 fingerprint of the server's static public key.
+
+**Resumable downloads (symmetric to upload)**
+
+The 2.1 upload pipeline now has a peer for the other direction.
+
+- `G9CFileDownloader` (client) — `DownloadAsync(serverFileName, localTargetPath, progress, ct)`. Resumes from a local `.partial` file, verifies the SHA-256 the server reported in `BeginDownload`, atomically renames on commit. Idempotent fast path: if a fully-downloaded committed file already matches the server's hash, the call returns `Completed` without re-streaming.
+- `BeginDownloadAsync` / `StreamFileAsync` on `IG9UploadService` — server-side. `BeginDownloadAsync` rejects path traversal, caches the SHA-256 keyed by `(path, length, lastWriteUtc)` so it isn't recomputed on every begin call, and caps the chunk size at 4 MB. `StreamFileAsync` returns `IAsyncEnumerable<byte[]>` for SignalR's documented server→client streaming pattern.
+- New error codes on the client side: `G9_DOWNLOAD_NOT_FOUND`, `G9_DOWNLOAD_HASH_MISMATCH`, `G9_DOWNLOAD_FAILED`.
+
+**Console harness — File transfer tab**
+
+The former File-upload tab is now File transfer with both directions:
+
+- Upload buttons: `[ Upload ]`, `[ Upload then break ]` (cancels at 8 MB to simulate a drop), `[ Resume upload ]`.
+- Download buttons: `[ Download ]`, `[ Download then break ]`, `[ Resume download ]`.
+- Two progress bars — one for each direction — with throughput and elapsed time.
+- A single shared transfer log so retries, breaks, and resumes are visible together.
 
 ### 2.1 — Policy attributes + resumable file upload
 
@@ -787,9 +840,202 @@ switch (result.Status)
 
 ### Out of scope (today)
 
-- **Cross-server resume in a load-balanced cluster** — the partial lives on whichever server node first received chunks. With sticky sessions you're fine; without them, a future call may land on a different node and start over. The Bundle 5 (2.2) Redis package and a shared blob backend will close this.
+- **Cross-server resume in a load-balanced cluster** — the partial lives on whichever server node first received chunks. With sticky sessions you're fine; without them, a future call may land on a different node and start over. The Bundle 5 Redis package and a shared blob backend will close this.
 - **Bandwidth throttling / pause-resume from the UI** — easy to add on top; not in 2.1.
-- **End-to-end encryption of the upload payload** — that's the 2.2 secure-channel work. Today the upload uses TLS as usual.
+
+## Resumable file download
+
+Symmetric to the upload pipeline. The server exposes `BeginDownloadAsync(serverRelativePath, resumeFrom, chunkSize)` and a streaming `StreamFileAsync(...)`. The client uses `G9CFileDownloader` and gets the same resume guarantees.
+
+```csharp
+// Server hub method (sample ChatHub):
+[G9AttrTelemetry]
+public IAsyncEnumerable<byte[]> DownloadChunks(string fileName, long resumeFrom, int chunkSize, CancellationToken ct)
+    => _uploads.StreamFileAsync(fileName, resumeFrom, chunkSize, ct);
+
+// Client:
+var downloader = new G9CFileDownloader(connection, new G9DtDownloadClientOptions
+{
+    ChunkSize = 64 * 1024,
+    OnRetry = info => Console.WriteLine($"resume from {info.BytesAlreadyOnServer} after {info.Backoff}")
+});
+var result = await downloader.DownloadAsync(
+    serverFileName: "file_upload_test.zip",
+    localTargetPath: @"C:\downloads\file_upload_test.zip",
+    progress: new Progress<G9DtDownloadClientProgress>(p =>
+        Console.WriteLine($"{100.0 * p.BytesReceived / p.TotalBytes:F1}%")));
+
+if (result.Status == G9EUploadStatus.Completed) Console.WriteLine($"OK at {result.LocalPath}");
+```
+
+What you get for free:
+
+- **Resume**: a `.partial` file on the client preserves bytes across cancels and disconnects; the next call seeks to the partial's length and continues.
+- **Hash verification**: server sends its SHA-256 in `BeginDownload`; the client re-hashes before atomic rename.
+- **Idempotent fast path**: if a fully-downloaded committed file already matches the server's hash, the call returns `Completed` without re-streaming.
+- **Path-traversal safety**: server rejects `..`, absolute paths, and anything that escapes `RootDirectory`.
+- **SHA cache**: the server caches the hash keyed by `(path, length, lastWriteUtc)` so it isn't recomputed on every begin call.
+
+## Groups and presence
+
+Two opt-in services that ride on top of SignalR's group machinery without losing the typed-proxy ergonomics.
+
+```csharp
+// Startup:
+builder.Services.AddG9SignalRSuperNetCoreGroups<ChatHub>();
+builder.Services.AddG9SignalRSuperNetCorePresence();
+
+// Hub class:
+[G9AttrPresenceTracked]               // emits G9DtPresenceEvents on Connect/Disconnect
+[G9AttrAutoJoinGroup("lobby")]        // every new connection lands in "lobby"
+public class ChatHub : G9AHubBase<ChatHub, IChatClient>
+{
+    public Task JoinRoom(string roomName)
+        => _groups.JoinAsync(Context.ConnectionId, roomName);
+
+    public Task SendToRoom(string roomName, string user, string message)
+        => Clients.Group(roomName).ReceiveMessage($"#{roomName} {user}", message);
+
+    public List<string> ListRoomMembers(string roomName)
+        => _groups.GetMembers(roomName).ToList();
+}
+```
+
+`G9CPresenceTracker.Events` is a `ChannelReader<G9DtPresenceEvent>`. Drain it in a `BackgroundService` to fan out online/offline transitions to whichever clients you choose:
+
+```csharp
+public sealed class G9CPresenceBroadcastService : BackgroundService
+{
+    public G9CPresenceBroadcastService(G9CPresenceTracker tracker, IHubContext<ChatHub, IChatClient> hub) { ... }
+
+    protected override async Task ExecuteAsync(CancellationToken ct)
+    {
+        await foreach (var evt in _tracker.Events.ReadAllAsync(ct))
+            await _hub.Clients.All.PresenceChanged(evt);
+    }
+}
+```
+
+Performance contract: hubs without `[G9AttrPresenceTracked]` pay no extra work. Auto-join is implemented as a hub-typed `G9CAutoJoinFilter<THub>` registered automatically by `AddG9SignalRSuperNetCoreGroups<THub>()` — AOT-safe, no `MakeGenericType` on the hot path.
+
+## Server streams with backpressure
+
+`G9CResilientStream.Create<T>(...)` returns a producer/consumer pair that completes the channel deterministically — no more "stream hangs because the writer was abandoned in a `catch`" footguns.
+
+```csharp
+[G9AttrTelemetry]
+[G9AttrStreamBackpressure(capacity: 64, dropPolicy: G9EStreamDropPolicy.Wait)]
+public IAsyncEnumerable<int> LiveTickerStream(int count, int intervalMs, CancellationToken ct)
+{
+    var attr = (G9AttrStreamBackpressureAttribute?)Attribute.GetCustomAttribute(
+        typeof(ChatHub).GetMethod(nameof(LiveTickerStream))!, typeof(G9AttrStreamBackpressureAttribute));
+    var (writer, reader) = G9CResilientStream.Create<int>(attr?.ToOptions());
+
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            for (var i = 0; i < count && !ct.IsCancellationRequested; i++)
+            {
+                await writer.WriteAsync(i, ct);
+                await Task.Delay(intervalMs, ct);
+            }
+        }
+        catch (OperationCanceledException) { /* client unsubscribed */ }
+        finally { writer.Complete(); }
+    }, ct);
+
+    return reader.AsAsyncEnumerable(ct);
+}
+```
+
+The drop policies map onto `BoundedChannelFullMode`:
+
+- `Wait` — block the producer until the consumer drains an item (default).
+- `DropNewest` — drop the new item; older queued items survive.
+- `DropOldest` — drop the oldest queued item to make room for the new one.
+
+## Resilient client reconnect
+
+`G9CClientReconnectPolicy` is wired into the generated client base by default. It keeps retrying with capped exponential backoff plus ±15% jitter and a configurable max-elapsed budget so a long outage doesn't trigger infinite retry storms.
+
+```csharp
+var conn = new HubConnectionBuilder()
+    .WithUrl(url)
+    .WithAutomaticReconnect(new G9CClientReconnectPolicy(
+        baseDelay: TimeSpan.FromMilliseconds(200),
+        factor:    2.0,
+        maxDelay:  TimeSpan.FromSeconds(30),
+        maxElapsed: TimeSpan.FromMinutes(5)))
+    .Build();
+```
+
+Pass `Timeout.InfiniteTimeSpan` for `maxElapsed` to retry forever.
+
+## App-level encryption (no TLS required)
+
+For environments where you can't run TLS — internal networks, h2c reverse proxies, on-device IPC — `G9CHandshake` ships an ephemeral-static ECDH P-256 + HKDF-SHA-256 + ChaCha20-Poly1305 pipeline using only `System.Security.Cryptography` types.
+
+```csharp
+// Startup:
+builder.Services.AddG9SignalRSuperNetCoreHandshake();
+```
+
+```csharp
+// Server hub methods (in the sample ChatHub):
+public Task<byte[]> GetServerPublicKey()              // 65-byte SEC1 pubkey
+    => Task.FromResult(_handshake.StaticPublicKey.ToArray());
+
+public Task<bool> BeginSession(byte[] ephemeralPub)   // caches the session key
+{
+    var key = _handshake.DeriveSessionKey(ephemeralPub);
+    _sealer.SetSession(Context.ConnectionId, key);
+    return Task.FromResult(true);
+}
+
+[G9AttrEncrypted]
+public Task<byte[]> EncryptedEchoSession(byte[] envelope)
+{
+    var plaintext = _sealer.Open(Context.ConnectionId, envelope);
+    return Task.FromResult(_sealer.Seal(Context.ConnectionId, plaintext));
+}
+```
+
+```csharp
+// Client side (one-shot per-call form):
+var serverPub = await connection.InvokeAsync<byte[]>("GetServerPublicKey");
+var (ephemeralPub, sessionKey) = G9CHandshake.ClientHandshake(serverPub);
+var envelope = G9CHandshake.Seal(sessionKey, Encoding.UTF8.GetBytes("hello"));
+var sealedReply = await connection.InvokeAsync<byte[]>("EncryptedEcho", ephemeralPub, envelope);
+var plaintext = G9CHandshake.Open(sessionKey, sealedReply);
+```
+
+What you get:
+
+- **Confidentiality + integrity** end-to-end against a network attacker.
+- **Forward secrecy** through the per-session ephemeral keypair.
+- **Server authentication** through the long-term static public key (TOFU; pin it on first connect, or hard-code for known deployments).
+- **Constant-time, FIPS-validated, hardware-accelerated** (AES-NI / ARM CRYPTO).
+- **AOT/MAUI-safe** — no third-party crypto dependencies.
+
+What it isn't:
+
+- Not a TLS replacement when you also need certificate revocation, downgrade protection, or origin authentication. Use TLS when you have the option.
+
+Why P-256 instead of X25519 / Noise IK: the BCL ships `ECDiffieHellman` for NIST P-256 and `ChaCha20Poly1305`, but no managed X25519. Implementing X25519 by hand in a few hundred lines is a security footgun. The IETF-standard ECDHE-static handshake on P-256 gives equivalent security guarantees through vetted BCL code.
+
+## Distributed backplane (interface)
+
+`IG9DistributedBackplane` is a minimal publish/subscribe abstraction so the in-process group manager and presence tracker can be replaced with a Redis or NATS implementation when scaling out.
+
+```csharp
+builder.Services.AddG9SignalRSuperNetCoreBackplane();   // default: in-process no-op
+
+// Or with a custom implementation:
+builder.Services.AddG9SignalRSuperNetCoreBackplane(sp => new MyRedisBackplane(...));
+```
+
+The default `G9CInProcessBackplane` drops publishes (there are no other nodes to receive them) and returns an empty subscription. SignalR's own Redis backplane already handles message fan-out for hub invocations; this interface is for the G9-specific membership state.
 
 ## Telemetry, metrics, and stable error codes
 
@@ -1027,21 +1273,24 @@ The 2.x line is shipped as a sequence of focused milestones.
   - Resumable, hash-verified file upload with progress and safe resume on disconnect.
   - Generator: `IAsyncEnumerable<T>` parameters, `ValueTask`/`ValueTask<T>` returns, `CancellationToken` threading.
   - Tabbed Consolonia console test harness exercising every feature end-to-end.
-- **2.2 — Groups & presence.**
-  - Type-safe group helper `GroupOf<TKey>(key)` and lifetime-managed group membership.
-  - Auto-cleanup on disconnect; presence broadcast.
-  - Room/channel abstraction layered on groups.
-- **2.3 — Streaming & resilience.**
-  - Per-connection write-buffer caps with a configurable timeout that closes the connection cleanly when exceeded.
-  - Slow-client detection and metric.
-  - Jittered exponential-backoff reconnect policy.
-  - Circuit-breaker for outbound server methods.
-- **2.4 — Distributed & secure.**
-  - `G9SignalRSuperNetCore.Server.Redis` — distributed `IG9SessionStore`, cluster-wide rate limiter, `AddG9SignalRBackplane(...)`.
-  - `G9SignalRSuperNetCore.Server.AzureSignalR` — turnkey Azure SignalR Service registration.
-  - `[G9AttrRequireSecureChannel]` — opt-in app-layer encryption (Noise IK over X25519 + AES-GCM/ChaCha20-Poly1305) for environments without TLS, with public-key pinning, monotonic nonces, replay protection.
-  - MessagePack hub protocol opt-in package.
-  - BenchmarkDotNet project measuring per-call throughput and allocation across protocol options.
+- **2.2 — Groups & presence (shipped).**
+  - `G9CGroupManager<THub>` — process-local group index with snapshot queries.
+  - `G9CPresenceTracker` — per-user connection counts with `Channel<G9DtPresenceEvent>`.
+  - `[G9AttrPresenceTracked]` — opt-in lifecycle tracking on the central filter.
+  - `[G9AttrAutoJoinGroup]` — declarative group membership via a hub-typed AOT-safe filter.
+  - Sample `ChatHub` ships `JoinRoom`, `LeaveRoom`, `SendToRoom`, `ListRoomMembers`, `ListOnlineUsers`.
+- **2.3 — Streaming & resilience (shipped).**
+  - `G9CResilientStream` — bounded producer/consumer pair with deterministic completion.
+  - `G9DtStreamOptions` — capacity + drop policy (Wait / DropNewest / DropOldest).
+  - `[G9AttrStreamBackpressure]` — declarative backpressure metadata.
+  - `G9CClientReconnectPolicy` — drop-in replacement for `WithAutomaticReconnect()` with jittered exponential backoff and a max-elapsed budget.
+- **2.4 — Distributed & secure (shipped, partial).**
+  - `G9CHandshake` — ECDH P-256 + HKDF-SHA-256 + ChaCha20-Poly1305, BCL-only.
+  - `G9CSessionSealer` — per-connection session-key cache, zeroed on disconnect.
+  - `[G9AttrEncrypted]` — declarative encrypted-method contract.
+  - `IG9DistributedBackplane` — pluggable cross-node coordination (default no-op for single-process; Redis/NATS implementations belong in optional packages).
+  - Resumable downloads with SHA-256 verification and idempotent fast path.
+  - Still planned for a future minor: `G9SignalRSuperNetCore.Server.Redis` package, MessagePack hub-protocol opt-in package, BenchmarkDotNet suite.
 
 The order can shift in response to consumer feedback; track progress in the issues board.
 
