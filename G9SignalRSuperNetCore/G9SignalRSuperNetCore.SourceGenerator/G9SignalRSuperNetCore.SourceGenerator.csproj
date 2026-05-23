@@ -12,9 +12,9 @@
 		<IsRoslynComponent>true</IsRoslynComponent>
 
 		<GeneratePackageOnBuild>false</GeneratePackageOnBuild>
-		<Version>2.1.0</Version>
-		<AssemblyVersion>2.1.0</AssemblyVersion>
-		<FileVersion>2.1.0</FileVersion>
+		<Version>2.4.1</Version>
+		<AssemblyVersion>2.4.1</AssemblyVersion>
+		<FileVersion>2.4.1</FileVersion>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
 		<NoWarn>$(NoWarn);RS1036</NoWarn>
 	</PropertyGroup>

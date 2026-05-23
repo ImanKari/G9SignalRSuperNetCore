@@ -15,10 +15,10 @@ public static class G9CTelemetry
     public const string SourceName = "G9SignalRSuperNetCore";
 
     /// <summary>The shared activity source.</summary>
-    public static readonly ActivitySource ActivitySource = new(SourceName, "2.1.0");
+    public static readonly ActivitySource ActivitySource = new(SourceName, "2.4.1");
 
     /// <summary>The shared meter for hub metrics.</summary>
-    public static readonly Meter Meter = new(SourceName, "2.1.0");
+    public static readonly Meter Meter = new(SourceName, "2.4.1");
 
     /// <summary>Counts hub method invocations rejected by the rate limiter.</summary>
     public static readonly Counter<long> RateLimitedInvocations =
