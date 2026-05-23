@@ -1,0 +1,22 @@
+<Project>
+
+  <!--
+    G9SignalRSuperNetCore — central version coordinates.
+    A single bump here updates all packable libraries and the source generator
+    (which ships embedded inside G9SignalRSuperNetCore.Server) in lockstep.
+
+    The csproj files no longer carry per-project <Version> / <AssemblyVersion>
+    / <FileVersion> elements; remove those properties locally to inherit the
+    values below.
+  -->
+
+  <PropertyGroup>
+    <G9PackageVersion>2.4.1</G9PackageVersion>
+
+    <!-- Inherited by every project under this folder. -->
+    <Version>$(G9PackageVersion)</Version>
+    <AssemblyVersion>$(G9PackageVersion)</AssemblyVersion>
+    <FileVersion>$(G9PackageVersion)</FileVersion>
+  </PropertyGroup>
+
+</Project>

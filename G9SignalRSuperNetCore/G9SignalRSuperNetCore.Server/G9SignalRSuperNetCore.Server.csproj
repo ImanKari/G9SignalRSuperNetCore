@@ -10,9 +10,6 @@
 		<IsTrimmable>true</IsTrimmable>
 
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-		<Version>2.4.1</Version>
-		<AssemblyVersion>2.4.1</AssemblyVersion>
-		<FileVersion>2.4.1</FileVersion>
 		<PackageIcon>G9-Icon.png</PackageIcon>
 		<PackageLicenseFile>LICENSE.md</PackageLicenseFile>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
