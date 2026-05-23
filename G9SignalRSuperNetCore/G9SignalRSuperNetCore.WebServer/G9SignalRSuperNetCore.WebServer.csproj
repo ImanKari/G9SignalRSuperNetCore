@@ -10,21 +10,12 @@
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
+		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\G9SignalRSuperNetCore.Server.ClientInterfaceGenerator\G9SignalRSuperNetCore.Server.ClientInterfaceGenerator.csproj" />
 		<ProjectReference Include="..\G9SignalRSuperNetCore.Server\G9SignalRSuperNetCore.Server.csproj" />
+		<ProjectReference Include="..\G9SignalRSuperNetCore.Sample.Shared\G9SignalRSuperNetCore.Sample.Shared.csproj" />
 	</ItemGroup>
-
-	<ItemGroup>
-		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer">
-			<Version>10.0.8</Version>
-		</PackageReference>
-	</ItemGroup>
-
-	<!-- For testing nuget package -->
-	<Import Project="..\G9SignalRSuperNetCore.Server.ClientInterfaceGenerator\buildTransitive\G9SignalRSuperNetCore.Server.ClientInterfaceGenerator.targets" />
-
 
 </Project>

@@ -1,0 +1,42 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="G9SignalRSuperNetCore.ConsoleClient.MainWindow"
+        RequestedThemeVariant="Dark"
+        Title="G9 SignalR — Console Test Harness">
+    <DockPanel LastChildFill="True">
+        <Border DockPanel.Dock="Top">
+            <StackPanel Orientation="Vertical">
+                <TextBlock Text="G9SignalRSuperNetCore — Console Test Harness" />
+                <TextBlock Text="Connect, send chat messages, watch live callbacks." />
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Top">
+            <StackPanel Orientation="Vertical">
+                <DockPanel>
+                    <TextBlock Text="Server: " VerticalAlignment="Center" />
+                    <TextBox Name="ServerUrlBox" Text="https://localhost:7159" />
+                </DockPanel>
+                <DockPanel>
+                    <TextBlock Text="Name:   " VerticalAlignment="Center" />
+                    <TextBox Name="UserNameBox" Text="Iman" />
+                </DockPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Button Name="ConnectButton" Content="[ Connect ]" />
+                    <Button Name="DisconnectButton" Content="[ Disconnect ]" IsEnabled="False" />
+                    <Button Name="GetRecentButton" Content="[ Recent ]" IsEnabled="False" />
+                    <Button Name="ExitButton" Content="[ Exit ]" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom">
+            <DockPanel>
+                <Button Name="SendButton" Content="[ Send ]" DockPanel.Dock="Right" IsEnabled="False" />
+                <TextBox Name="MessageBox" Text="Hello from Consolonia!" />
+            </DockPanel>
+        </Border>
+
+        <ListBox Name="LogList" />
+    </DockPanel>
+</Window>

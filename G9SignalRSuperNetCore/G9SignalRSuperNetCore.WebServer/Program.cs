@@ -1,8 +1,13 @@
+using G9SignalRSuperNetCore.Sample.Shared;
 using G9SignalRSuperNetCore.Server;
 
 namespace G9SignalRSuperNetCore.WebServer;
 
-public class Program
+/// <summary>
+///     Sample SignalR server hosting <see cref="ChatHub"/> for end-to-end testing
+///     against the console test client.
+/// </summary>
+public static class Program
 {
     public static void Main(string[] args)
     {
@@ -10,28 +15,17 @@ public class Program
 
         builder.Logging.ClearProviders();
         builder.Logging.AddConsole();
-        builder.Logging.AddDebug();
 
-        // Core SignalR services + deny policy + custom UserIdProvider
+        // Core SignalR services + deny-by-default policy + custom UserIdProvider
         builder.Services.AddSignalRSuperNetCoreCore();
-
-        // Pluggable session store (in-memory by default; swap in Redis for scale-out)
-        builder.Services.AddG9SignalRSuperNetCoreSessionStore<CustomHubSession>();
-
-        // JWT authentication for the protected hub route
-        builder.Services.AddSignalRSuperNetCoreJwt(
-            hubPath: CustomHubWithJWTAuthAndSession.HubRoute,
-            validationParameters: CustomHubWithJWTAuthAndSession.TokenValidationParameters);
 
         var app = builder.Build();
 
-        app.MapGet("/", () => "G9SignalRSuperNetCore WebServer sample");
+        app.MapGet("/", () => "G9SignalRSuperNetCore — sample chat server is running.");
+        app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 
-        // Map the JWT auth route + the protected hub
-        app.AddSignalRSuperNetCoreJwtHub<CustomHubWithJWTAuthAndSession, CustomClientInterface>(
-            hubRoutePattern: CustomHubWithJWTAuthAndSession.HubRoute,
-            authRoutePattern: CustomHubWithJWTAuthAndSession.AuthRoute,
-            authenticate: CustomHubWithJWTAuthAndSession.AuthenticateAsync);
+        // Map the hub at its declared route pattern
+        app.AddSignalRSuperNetCoreServerHub<ChatHub, IChatClient>(routePattern: ChatHub.Route);
 
         app.Run();
     }
