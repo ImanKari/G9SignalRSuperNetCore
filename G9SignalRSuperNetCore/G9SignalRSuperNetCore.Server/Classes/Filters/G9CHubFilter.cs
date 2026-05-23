@@ -3,8 +3,11 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Security.Claims;
 using G9SignalRSuperNetCore.Server.Classes.Attributes;
+using G9SignalRSuperNetCore.Server.Classes.Crypto;
 using G9SignalRSuperNetCore.Server.Classes.Errors;
+using G9SignalRSuperNetCore.Server.Classes.Presence;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace G9SignalRSuperNetCore.Server.Classes.Filters;
 
@@ -132,6 +135,18 @@ public sealed class G9CHubFilter : IHubFilter
             }
         }
 
+        // Bundle 3: presence tracking (opt-in via [G9AttrPresenceTracked]).
+        if (hubType.GetCustomAttribute<G9AttrPresenceTrackedAttribute>() is not null)
+        {
+            var tracker = context.Context.GetHttpContext()?.RequestServices.GetService<G9CPresenceTracker>();
+            var key = context.Context.UserIdentifier ?? context.Context.ConnectionId;
+            tracker?.OnConnected(key);
+        }
+
+        // NOTE: Bundle 3 auto-join (G9AttrAutoJoinGroup) is handled by the hub-typed
+        // G9CAutoJoinFilter<THub> registered via AddG9SignalRSuperNetCoreGroups<THub>(). We don't
+        // join here because doing so would require MakeGenericType, which isn't AOT-safe.
+
         await next(context).ConfigureAwait(false);
     }
 
@@ -147,6 +162,18 @@ public sealed class G9CHubFilter : IHubFilter
             if (limit.PerUser > 0 && !string.IsNullOrEmpty(userId)) _userConnections.Decrement(userId);
             if (limit.PerIp > 0 && !string.IsNullOrEmpty(ip)) _ipConnections.Decrement(ip);
         }
+
+        // Bundle 3: presence tracking (opt-in).
+        if (hubType.GetCustomAttribute<G9AttrPresenceTrackedAttribute>() is not null)
+        {
+            var tracker = context.Context.GetHttpContext()?.RequestServices.GetService<G9CPresenceTracker>();
+            var key = context.Context.UserIdentifier ?? context.Context.ConnectionId;
+            tracker?.OnDisconnected(key);
+        }
+
+        // Bundle 5: drop the cached session key (if any) so its bytes are zeroed.
+        var sealer = context.Context.GetHttpContext()?.RequestServices.GetService<G9CSessionSealer>();
+        sealer?.DropSession(context.Context.ConnectionId);
 
         await next(context, exception).ConfigureAwait(false);
     }

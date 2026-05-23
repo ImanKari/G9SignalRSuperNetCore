@@ -120,6 +120,81 @@ public static class G9SignalRSuperNetCoreServer
     }
 
     /// <summary>
+    ///     Registers the in-process group manager for <typeparamref name="THub"/>. Hubs that need
+    ///     "who's in this group?" queries (or auto-join via
+    ///     <see cref="G9SignalRSuperNetCore.Server.Classes.Attributes.G9AttrAutoJoinGroupAttribute"/>)
+    ///     should call this.
+    /// </summary>
+    /// <typeparam name="THub">The SignalR hub type whose groups are managed.</typeparam>
+    public static IServiceCollection AddG9SignalRSuperNetCoreGroups<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicMethods)]
+        THub>(this IServiceCollection services)
+        where THub : Hub
+    {
+        services.AddSingleton<G9SignalRSuperNetCore.Server.Classes.Groups.G9CGroupManager<THub>>();
+        services.AddSingleton<G9SignalRSuperNetCore.Server.Classes.Groups.G9CAutoJoinFilter<THub>>();
+
+        // Plug the hub-typed auto-join filter into the per-hub SignalR options so it doesn't run
+        // for every hub registered in the process. AOT-safe because THub is fully resolved at
+        // compile time.
+        //
+        // IMPORTANT: SignalR REPLACES (does not merge) the global HubOptions.HubFilters list once
+        // any per-hub filter is added through HubOptions<THub>. So we must re-add G9CHubFilter
+        // here too — otherwise rate-limit, connection-limit, role/claim, telemetry, and presence
+        // policies would silently stop applying to THub.
+        services.AddSignalR().AddHubOptions<THub>(o =>
+        {
+            o.AddFilter<G9CHubFilter>();
+            o.AddFilter<G9SignalRSuperNetCore.Server.Classes.Groups.G9CAutoJoinFilter<THub>>();
+        });
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers the process-local presence tracker. Hubs decorated with
+    ///     <see cref="G9SignalRSuperNetCore.Server.Classes.Attributes.G9AttrPresenceTrackedAttribute"/>
+    ///     will publish online / offline transitions through
+    ///     <c>G9CPresenceTracker.Events</c>.
+    /// </summary>
+    public static IServiceCollection AddG9SignalRSuperNetCorePresence(this IServiceCollection services)
+    {
+        services.AddSingleton<G9SignalRSuperNetCore.Server.Classes.Presence.G9CPresenceTracker>();
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers the lightweight ECDH-static + ChaCha20-Poly1305 handshake helper as a
+    ///     singleton. Hubs that need app-level encryption over a plain (non-TLS) SignalR
+    ///     connection should call this and expose a hub method that returns the server's
+    ///     static public key (<c>G9CHandshake.StaticPublicKey</c>).
+    /// </summary>
+    public static IServiceCollection AddG9SignalRSuperNetCoreHandshake(this IServiceCollection services)
+    {
+        services.AddSingleton<G9SignalRSuperNetCore.Server.Classes.Crypto.G9CHandshake>();
+        services.AddSingleton<G9SignalRSuperNetCore.Server.Classes.Crypto.G9CSessionSealer>();
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers an <see cref="G9SignalRSuperNetCore.Server.Classes.Distributed.IG9DistributedBackplane"/>
+    ///     for cross-node coordination. The default implementation is a no-op suitable for a
+    ///     single-process deployment; pass a custom factory to wire up Redis, NATS, or another
+    ///     transport when scaling out.
+    /// </summary>
+    public static IServiceCollection AddG9SignalRSuperNetCoreBackplane(
+        this IServiceCollection services,
+        Func<IServiceProvider, G9SignalRSuperNetCore.Server.Classes.Distributed.IG9DistributedBackplane>? factory = null)
+    {
+        if (factory is null)
+            services.AddSingleton<G9SignalRSuperNetCore.Server.Classes.Distributed.IG9DistributedBackplane,
+                G9SignalRSuperNetCore.Server.Classes.Distributed.G9CInProcessBackplane>();
+        else
+            services.AddSingleton(factory);
+        return services;
+    }
+
+    /// <summary>
     ///     Adds the SignalR SuperNetCore server services for an unauthenticated hub.
     /// </summary>
     /// <typeparam name="TTargetClass">The hub type derived from <see cref="G9AHubBase{TTargetClass,TClientSideMethodsInterface}"/>.</typeparam>

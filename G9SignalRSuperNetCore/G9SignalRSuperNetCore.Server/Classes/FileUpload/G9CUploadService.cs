@@ -35,6 +35,7 @@ public sealed class G9CUploadService : IG9UploadService
     private readonly G9DtUploadOptions _options;
     private readonly ILogger<G9CUploadService> _log;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, (long Length, DateTime LastWriteUtc, string Sha256)> _hashCache = new(StringComparer.Ordinal);
 
     /// <summary>Initializes the upload service.</summary>
     public G9CUploadService(IOptions<G9DtUploadOptions> options, ILogger<G9CUploadService> log)
@@ -286,6 +287,104 @@ public sealed class G9CUploadService : IG9UploadService
         }
 
         return removed;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<G9DtBeginDownloadResult> BeginDownloadAsync(
+        string serverRelativePath,
+        long resumeFrom,
+        int chunkSize,
+        CancellationToken ct = default)
+    {
+        var resolved = ResolveDownloadPath(serverRelativePath);
+        if (!File.Exists(resolved))
+            return new G9DtBeginDownloadResult { NotFound = true };
+
+        var info = new FileInfo(resolved);
+        var sha = await GetOrComputeShaAsync(resolved, info, ct).ConfigureAwait(false);
+
+        var capped = Math.Min(chunkSize, MaxChunkSize);
+        if (capped <= 0) capped = 64 * 1024;
+
+        return new G9DtBeginDownloadResult
+        {
+            TotalBytes = info.Length,
+            Sha256 = sha,
+            ChunkSize = capped,
+            ResumeFrom = Math.Clamp(resumeFrom, 0, info.Length)
+        };
+    }
+
+    /// <inheritdoc />
+    public async IAsyncEnumerable<byte[]> StreamFileAsync(
+        string serverRelativePath,
+        long resumeFrom,
+        int chunkSize,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var resolved = ResolveDownloadPath(serverRelativePath);
+        if (!File.Exists(resolved))
+            throw new FileNotFoundException("Server file not found.", serverRelativePath);
+
+        var capped = Math.Clamp(chunkSize, 1024, MaxChunkSize);
+        var info = new FileInfo(resolved);
+        var startOffset = Math.Clamp(resumeFrom, 0, info.Length);
+
+        await using var fs = new FileStream(resolved, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 1024 * 1024, FileOptions.SequentialScan | FileOptions.Asynchronous);
+        if (startOffset > 0) fs.Seek(startOffset, SeekOrigin.Begin);
+
+        var pool = ArrayPool<byte>.Shared;
+        var rented = pool.Rent(capped);
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                var read = await fs.ReadAsync(rented.AsMemory(0, capped), ct).ConfigureAwait(false);
+                if (read == 0) yield break;
+
+                // Allocate a precisely-sized array because SignalR's JSON HubProtocol base64-encodes
+                // byte[] and a pooled buffer would race with the serializer.
+                var chunk = new byte[read];
+                Buffer.BlockCopy(rented, 0, chunk, 0, read);
+                yield return chunk;
+            }
+        }
+        finally
+        {
+            pool.Return(rented);
+        }
+    }
+
+    private string ResolveDownloadPath(string serverRelativePath)
+    {
+        if (string.IsNullOrEmpty(serverRelativePath))
+            throw new ArgumentException("Server file path required.", nameof(serverRelativePath));
+
+        // Normalize to defeat .. traversal and absolute-path tricks.
+        var safe = Path.GetFileName(serverRelativePath);
+        if (string.IsNullOrEmpty(safe))
+            throw new ArgumentException("Server file path must be a simple file name.", nameof(serverRelativePath));
+
+        var fullRoot = Path.GetFullPath(_options.RootDirectory);
+        var fullPath = Path.GetFullPath(Path.Combine(fullRoot, safe));
+        if (!fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("Path traversal denied.");
+        return fullPath;
+    }
+
+    private async Task<string> GetOrComputeShaAsync(string path, FileInfo info, CancellationToken ct)
+    {
+        if (_hashCache.TryGetValue(path, out var entry)
+            && entry.Length == info.Length
+            && entry.LastWriteUtc == info.LastWriteTimeUtc)
+        {
+            return entry.Sha256;
+        }
+
+        var sha = await ComputeSha256Async(path, ct).ConfigureAwait(false);
+        _hashCache[path] = (info.Length, info.LastWriteTimeUtc, sha);
+        return sha;
     }
 
     private static async Task<string> ComputeSha256Async(string path, CancellationToken ct)

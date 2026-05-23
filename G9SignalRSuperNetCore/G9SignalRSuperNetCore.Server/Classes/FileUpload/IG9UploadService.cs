@@ -41,4 +41,31 @@ public interface IG9UploadService
     /// </summary>
     /// <returns>The number of partials deleted.</returns>
     int CleanupExpiredPartials();
+
+    /// <summary>
+    ///     Begins or resumes a server-to-client download of <paramref name="serverRelativePath"/>.
+    ///     Returns the file's total length and SHA-256 so the client can verify after the last
+    ///     chunk arrives. The path is resolved against
+    ///     <see cref="G9DtUploadOptions.RootDirectory"/> and <c>..</c> traversal is rejected.
+    /// </summary>
+    /// <param name="serverRelativePath">Path relative to the upload root.</param>
+    /// <param name="resumeFrom">Byte offset the client already has on disk.</param>
+    /// <param name="chunkSize">Client-preferred chunk size; the server may cap this.</param>
+    /// <param name="ct">Cancellation.</param>
+    ValueTask<G9DtBeginDownloadResult> BeginDownloadAsync(
+        string serverRelativePath,
+        long resumeFrom,
+        int chunkSize,
+        CancellationToken ct = default);
+
+    /// <summary>
+    ///     Streams chunks from <paramref name="serverRelativePath"/> starting at
+    ///     <paramref name="resumeFrom"/>. Each yielded array is sized to <paramref name="chunkSize"/>
+    ///     except possibly the last.
+    /// </summary>
+    IAsyncEnumerable<byte[]> StreamFileAsync(
+        string serverRelativePath,
+        long resumeFrom,
+        int chunkSize,
+        CancellationToken ct = default);
 }

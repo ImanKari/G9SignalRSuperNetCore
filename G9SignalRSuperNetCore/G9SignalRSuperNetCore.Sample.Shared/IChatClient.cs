@@ -1,4 +1,5 @@
 using G9SignalRSuperNetCore.Server.Classes.FileUpload;
+using G9SignalRSuperNetCore.Server.Classes.Presence;
 
 namespace G9SignalRSuperNetCore.Sample.Shared;
 
@@ -28,4 +29,8 @@ public interface IChatClient
     /// <summary>Server-pushed file-upload progress.</summary>
     /// <param name="progress">The current bytes-received state.</param>
     Task UploadProgress(G9DtUploadProgress progress);
+
+    /// <summary>Server-pushed presence transition (someone came online or went offline).</summary>
+    /// <param name="presenceEvent">The presence event payload.</param>
+    Task PresenceChanged(G9DtPresenceEvent presenceEvent);
 }
