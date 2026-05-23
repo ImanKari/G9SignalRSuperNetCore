@@ -10,9 +10,9 @@
 		<IsTrimmable>true</IsTrimmable>
 
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-		<Version>2.0.0</Version>
-		<AssemblyVersion>2.0.0</AssemblyVersion>
-		<FileVersion>2.0.0</FileVersion>
+		<Version>2.1.0</Version>
+		<AssemblyVersion>2.1.0</AssemblyVersion>
+		<FileVersion>2.1.0</FileVersion>
 		<PackageIcon>G9-Icon.png</PackageIcon>
 		<PackageLicenseFile>LICENSE.md</PackageLicenseFile>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -57,6 +57,25 @@
 
 	<ItemGroup>
 		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
+
+	<!--
+	  The source generator is referenced as an analyzer so consumers of this NuGet package get
+	  automatic, AOT-safe typed client generation. The OutputItemType=Analyzer + ReferenceOutputAssembly=false
+	  ensures the generator DLL is packaged under the analyzers/ path of the .nupkg.
+	-->
+	<ItemGroup>
+		<ProjectReference Include="..\G9SignalRSuperNetCore.SourceGenerator\G9SignalRSuperNetCore.SourceGenerator.csproj"
+		                  OutputItemType="Analyzer"
+		                  ReferenceOutputAssembly="false"
+		                  PrivateAssets="all" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Include="..\G9SignalRSuperNetCore.SourceGenerator\bin\$(Configuration)\netstandard2.0\G9SignalRSuperNetCore.SourceGenerator.dll"
+		      Pack="true"
+		      PackagePath="analyzers/dotnet/cs"
+		      Visible="false" />
 	</ItemGroup>
 
 	<ItemGroup>

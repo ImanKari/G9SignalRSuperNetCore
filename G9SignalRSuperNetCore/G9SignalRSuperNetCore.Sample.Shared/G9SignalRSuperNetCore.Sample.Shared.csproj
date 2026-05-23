@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<IsPackable>false</IsPackable>
+		<IsAotCompatible>true</IsAotCompatible>
+		<EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\G9SignalRSuperNetCore.Server\G9SignalRSuperNetCore.Server.csproj" />
+	</ItemGroup>
+
+	<!-- Sample.Shared has only the server reference (it's just hubs and DTOs).
+	     The generator deliberately does NOT emit a client class in this project because the
+	     client library is not referenced. The ConsoleClient project (which references the
+	     client library AND the SourceGenerator) is where the typed client class appears. -->
+
+
+</Project>
