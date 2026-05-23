@@ -1,21 +1,25 @@
 # G9SignalRSuperNetCore
 
-[![NuGet](https://img.shields.io/nuget/v/G9SignalRSuperNetCore.Server.svg?style=flat-square&label=Server)](https://www.nuget.org/packages/G9SignalRSuperNetCore.Server/)
-[![NuGet](https://img.shields.io/nuget/v/G9SignalRSuperNetCore.Client.svg?style=flat-square&label=Client)](https://www.nuget.org/packages/G9SignalRSuperNetCore.Client/)
-[![NuGet](https://img.shields.io/nuget/v/G9SignalRSuperNetCore.Server.ClientInterfaceGenerator.svg?style=flat-square&label=ClientInterfaceGenerator)](https://www.nuget.org/packages/G9SignalRSuperNetCore.Server.ClientInterfaceGenerator/)
+[![NuGet — Server](https://img.shields.io/nuget/v/G9SignalRSuperNetCore.Server.svg?style=flat-square&label=Server)](https://www.nuget.org/packages/G9SignalRSuperNetCore.Server/)
+[![NuGet — Client](https://img.shields.io/nuget/v/G9SignalRSuperNetCore.Client.svg?style=flat-square&label=Client)](https://www.nuget.org/packages/G9SignalRSuperNetCore.Client/)
+[![NuGet — Generator](https://img.shields.io/nuget/v/G9SignalRSuperNetCore.Server.ClientInterfaceGenerator.svg?style=flat-square&label=ClientGenerator)](https://www.nuget.org/packages/G9SignalRSuperNetCore.Server.ClientInterfaceGenerator/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE.md)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
+[![AOT-safe](https://img.shields.io/badge/NativeAOT-ready-success?style=flat-square)](#maui-and-nativeaot-support)
+[![MAUI](https://img.shields.io/badge/MAUI-Android%20%7C%20iOS%20%7C%20Mac%20%7C%20Win-7160E8?style=flat-square)](#maui-and-nativeaot-support)
 
-**G9SignalRSuperNetCore** is a strongly-typed, productivity-focused wrapper around ASP.NET Core SignalR that lets you build real-time hubs and clients with less ceremony and more safety. It bundles three things most SignalR projects end up reinventing: a typed hub/client base, a JWT authentication flow, and per-connection session state — plus a build-time generator that produces a typed client from your hubs automatically.
+**G9SignalRSuperNetCore** is a strongly-typed, AOT-friendly, scale-aware wrapper around ASP.NET Core SignalR that lets you build real-time hubs and clients with less ceremony and more safety. Hubs derive from typed base classes, clients use a build-time source generator to get a fully-typed `Server` proxy, JWT authentication is wired by default, and per-user session storage is pluggable so you can scale horizontally without rewriting hubs.
 
-> Server hubs and clients talk through interfaces. Client method calls become `Task` / `Task<T>` invocations. Server-to-client callbacks are wired up by reflection and exposed as listener methods. Authentication, reconnect, and session lifecycle are handled in the base classes.
+> Drop reflection-based runtime proxies, get a build-time generated typed client. Drop static per-process state, get a pluggable session store. Keep the SignalR programming model you already know.
 
 ---
 
-## Table of Contents
+## Table of contents
 
+- [What's new in 2.0](#whats-new-in-20)
 - [Why this library](#why-this-library)
 - [Packages](#packages)
+- [MAUI and NativeAOT support](#maui-and-nativeaot-support)
 - [Architecture overview](#architecture-overview)
 - [Getting started](#getting-started)
   - [Prerequisites](#prerequisites)
@@ -24,38 +28,81 @@
 - [Sample with JWT authentication](#sample-with-jwt-authentication)
 - [Sample with sessions](#sample-with-sessions)
 - [Sample with JWT + sessions (recommended)](#sample-with-jwt--sessions-recommended)
-- [Auto-generated client helpers](#auto-generated-client-helpers)
+- [Pluggable session store](#pluggable-session-store)
+- [Auto-generated typed client](#auto-generated-typed-client)
 - [Client features](#client-features)
 - [Attributes](#attributes)
 - [JWT helper](#jwt-helper)
+- [Scaling to many connections](#scaling-to-many-connections)
+- [Thread safety contract](#thread-safety-contract)
 - [Build and test](#build-and-test)
 - [Project layout](#project-layout)
+- [Migration guide (1.x → 2.0)](#migration-guide-1x--20)
+- [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
 
 ---
 
+## What's new in 2.0
+
+Version 2.0 is a hardening release focused on correctness at scale and platform reach.
+
+- **MAUI and NativeAOT ready.** All library projects declare `IsAotCompatible=true` and `EnableTrimAnalyzer=true`. The runtime Castle DynamicProxy dependency is gone; the typed `Server` proxy is now produced by a build-time source generator with no `Reflection.Emit`. Publishes cleanly under `PublishAot=true` with no trim warnings attributable to G9 code.
+- **No reflection on the client hot path.** Server-method invocations and listener registrations are emitted as concrete typed code. Per-call CPU and allocations are dominated by the underlying `HubConnection`, not by intermediate reflection.
+- **Pluggable session storage.** A new `IG9SessionStore<TSession>` abstraction replaces the static per-process dictionary. The default `G9CInMemorySessionStore<TSession>` is registered through DI and matches the previous behavior; swap it for a distributed implementation to scale across processes.
+- **Lock-free, race-free session counters.** `G9ASession.ConnectionCounts` and `LastActivityDateTime` are mutated through `Interlocked` operations only. Connect/disconnect storms from the same user no longer drop or under-count.
+- **Encapsulated JWT route registry.** The leading-underscore static dictionary on `G9GetJwtHub` is replaced by an internal registry. `JwtSecurityTokenHandler` is now reused process-wide.
+- **Cleaner scale-out path.** No correctness-critical state lives in the library's static fields. The same hub source code works behind a Redis backplane or Azure SignalR Service.
+- **Warning-clean Release build.** Zero AOT, trim, or compiler warnings attributable to G9 code.
+
+A coming **2.1** release adds an opt-in application-layer secure channel (`ECDH + AEAD` with public-key pinning), `[G9AttrRateLimit]` / `[G9AttrConnectionRequired]` attributes, and a Redis-backed session store package.
+
 ## Why this library
 
-Plain SignalR works, but you usually end up writing the same plumbing: a typed proxy for server methods, a registration block for client callbacks, a JWT pipeline that plays nicely with WebSockets, a per-connection session, and a code-gen step so the client and server never drift. G9SignalRSuperNetCore covers all of that:
+Plain ASP.NET Core SignalR is excellent, but most teams end up building the same plumbing: a typed proxy for server methods, a registration block for client callbacks, a JWT pipeline that plays nicely with WebSockets, a per-user session, and a code-gen step so client and server never drift. G9SignalRSuperNetCore covers all of that:
 
-- **Strongly-typed server hubs** with a generic `Hub<TClientInterface>` base
-- **Strongly-typed client proxy** generated at runtime via Castle DynamicProxy — call `client.Server.MyMethod(...)` directly
-- **Automatic listener wiring** — client implements the listener interface and base class hooks the methods up
-- **JWT authentication out of the box** — separate "auth hub" route exchanges credentials for a token, then the protected hub uses `[Authorize]`
-- **Per-connection session** — thread-safe session store with first-connect / last-activity tracking and cleanup helpers
-- **Build-time client generator** — drop a NuGet reference into your server project and the typed client is generated from your hub signatures
-- **Streaming and request/response helpers** — `ListenOnceAsync`, `SendThenListenOnceAsync`, and `IAsyncEnumerable` streaming all supported
+- **Strongly-typed server hubs** through a generic `Hub<TClientInterface>` base.
+- **Strongly-typed client proxy generated at build time** — call `client.Server.MyMethod(...)` directly.
+- **Listener wiring with no reflection** — generated typed `On<...>` registrations match your interface.
+- **JWT authentication out of the box** — separate auth route exchanges credentials for a token, then the protected hub uses `[Authorize]`.
+- **Per-user session abstraction** — thread-safe counters, last-activity tracking, cleanup helpers, swappable backend.
+- **Scale-out friendly** — no static per-process state on the correctness path.
+- **MAUI and NativeAOT friendly** — all hot paths free of `Reflection.Emit` and runtime proxy generation.
 
 ## Packages
 
 | Package | Purpose |
 |---|---|
-| `G9SignalRSuperNetCore.Server` | Hub base classes, JWT pipeline, session store, attributes, helpers |
+| `G9SignalRSuperNetCore.Server` | Hub base classes, JWT pipeline, session abstraction, attributes, helpers |
 | `G9SignalRSuperNetCore.Client` | Typed client base classes for both anonymous and JWT-authenticated hubs |
-| `G9SignalRSuperNetCore.Server.ClientInterfaceGenerator` | MSBuild task that generates a typed client from your hubs |
+| `G9SignalRSuperNetCore.Server.ClientInterfaceGenerator` | Build-time generator that emits the typed client from your hubs |
 
-All packages target **.NET 10.0**.
+All packages target **.NET 10.0** and are AOT-compatible and trim-safe.
+
+---
+
+## MAUI and NativeAOT support
+
+The library is designed for iOS, Android, MacCatalyst, Windows, and NativeAOT publishes from day one.
+
+- **No `Reflection.Emit`.** The Castle DynamicProxy runtime proxy is gone. The typed `Server` proxy is concrete code emitted by the source generator at build time.
+- **No reflection on the client hot path.** Listener registrations are typed `Connection.On<...>(...)` calls in generated code.
+- **Trim and AOT analyzers enabled.** Every library project sets `IsAotCompatible=true` and `EnableTrimAnalyzer=true`, and public APIs that capture interface generic parameters propagate `[DynamicallyAccessedMembers]` so consumers do not see opaque trim warnings.
+- **Single intrinsic AOT requirement.** ASP.NET Core SignalR's typed `Hub<T>` base requires dynamic code at runtime to materialize its strongly-typed client proxy on the server side. Hub base constructors are annotated with `[RequiresDynamicCode]` so the build cleanly surfaces this in any AOT-published server. Client-side AOT is unaffected.
+
+To publish a MAUI client in Release with AOT:
+
+```xml
+<PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-ios' or '$(TargetFramework)' == 'net10.0-maccatalyst'">
+  <PublishAot>true</PublishAot>
+  <TrimMode>full</TrimMode>
+</PropertyGroup>
+```
+
+Then `dotnet publish -f net10.0-ios -c Release` should complete without trim or AOT warnings attributable to G9 code.
+
+> Server-side AOT publish is supported, but ASP.NET Core SignalR itself emits trim/AOT warnings for typed hub proxies; the library's annotations make those warnings visible to you instead of hiding them.
 
 ## Architecture overview
 
@@ -68,10 +115,15 @@ All packages target **.NET 10.0**.
 │   ├─ G9AHubBaseWithSession<THub, TClient, TSession>                  │
 │   └─ G9AHubBaseWithSessionAndJWTAuth<THub, TClient, TSession>        │
 │                                                                      │
-│   AddSignalRSuperNetCoreServerService<...>()                         │
-│   AddSignalRSuperNetCoreServerHub<...>()                             │
+│   IG9SessionStore<TSession>  (DI)                                    │
+│   └─ G9CInMemorySessionStore<TSession>  (default)                    │
 │                                                                      │
-│   JWT auth → /AuthHub  ──►  protected hub at /SecureHub              │
+│   AddSignalRSuperNetCoreCore(...)                                    │
+│   AddG9SignalRSuperNetCoreSessionStore<TSession>()                   │
+│   AddSignalRSuperNetCoreJwt(hubPath, validationParameters)           │
+│   AddSignalRSuperNetCoreJwtHub<THub, TClient>(hubRoute, authRoute,…) │
+│                                                                      │
+│   /AuthHub  ─►  /SecureHub  (Authorize)                              │
 └─────────────────────────────────────────────────────────────────────┘
                                   ▲
                                   │ WebSocket / SSE / LongPolling
@@ -82,11 +134,9 @@ All packages target **.NET 10.0**.
 │   G9SignalRSuperNetCoreClient<TSelf, TServerMethods, TListeners>     │
 │   └─ G9SignalRSuperNetCoreClientWithJWTAuth<...>                     │
 │                                                                      │
-│   client.Server.MyMethod(args)        ── strongly-typed proxy        │
-│   listener methods on derived class   ── auto-wired                  │
-│   client.AssignListenerEvent(...)     ── lambda-style listener       │
-│   client.ListenOnceAsync(...)         ── one-shot await              │
-│   client.SendThenListenOnceAsync(...) ── request/response            │
+│   client.Server.MyMethod(args)  ── source-generator typed proxy      │
+│   listener methods on derived class ── source-generator typed wiring │
+│   AOT-safe — no Castle, no Reflection.Emit                           │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -95,8 +145,8 @@ All packages target **.NET 10.0**.
 ### Prerequisites
 
 - .NET 10.0 SDK or later
-- An ASP.NET Core 10 project for the server
-- Any .NET 10 project for the client (console, WPF, MAUI, Blazor, ASP.NET, etc.)
+- ASP.NET Core 10 project for the server
+- Any .NET 10 project for the client (console, MAUI, WPF, Blazor, ASP.NET, etc.)
 
 ### Install
 
@@ -113,13 +163,13 @@ Client project:
 dotnet add package G9SignalRSuperNetCore.Client
 ```
 
-The `ClientInterfaceGenerator` package is optional. Use it when you want a typed client class generated from your hub signatures at build time. See [Auto-generated client helpers](#auto-generated-client-helpers).
+The `ClientInterfaceGenerator` package is optional but recommended — it emits the typed client class from your hubs at build time. See [Auto-generated typed client](#auto-generated-typed-client).
 
 ---
 
 ## Quick sample (no auth)
 
-A minimal hub, a client interface for server-to-client callbacks, and a console client that connects.
+A minimal hub, a client interface for server-to-client callbacks, and a console client.
 
 **Server — `Program.cs`**
 
@@ -128,11 +178,15 @@ using G9SignalRSuperNetCore.Server;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddSignalRSuperNetCoreServerService<ChatHub, IChatClient>();
+// Core services: SignalR + deny-by-default policy + custom UserIdProvider
+builder.Services.AddSignalRSuperNetCoreCore();
 
 var app = builder.Build();
 
-app.AddSignalRSuperNetCoreServerHub<ChatHub, IChatClient>();
+// Map your hub at its declared route pattern
+app.AddSignalRSuperNetCoreServerHub<ChatHub, IChatClient>(
+    routePattern: "/chat");
+
 app.MapGet("/", () => "Chat server is running");
 app.Run();
 ```
@@ -167,34 +221,30 @@ public class ChatHub : G9AHubBase<ChatHub, IChatClient>
 }
 ```
 
-**Client — `ChatClient.cs`** (typed; written by hand or generated)
+**Client — generated typed client (preferred)**
+
+Build the server project once with `G9SignalRSuperNetCore.Server.ClientInterfaceGenerator` referenced; a typed `ChatHubClient` is generated. Then in the client app:
 
 ```csharp
-using G9SignalRSuperNetCore.Client;
+var client = new ChatHubClient("https://localhost:7159");
+await client.ConnectAsync();
+await client.Server.SendMessage("Iman", "Hello, world");
+Console.ReadLine();
+await client.DisconnectAsync();
+```
 
-public interface IChatHubMethods
+The generated client implements your listener interface with default no-op overrides; subclass it and override the methods you care about:
+
+```csharp
+public sealed class MyChatClient(string url) : ChatHubClient(url)
 {
-    Task SendMessage(string user, string message);
-}
-
-public interface IChatHubListeners
-{
-    Task ReceiveMessage(string user, string message);
-    Task UserJoined(string user);
-}
-
-public class ChatClient : G9SignalRSuperNetCoreClient<ChatClient, IChatHubMethods, IChatHubListeners>,
-    IChatHubListeners
-{
-    public ChatClient(string serverUrl) : base($"{serverUrl}/chat") { }
-
-    public Task ReceiveMessage(string user, string message)
+    public override Task ReceiveMessage(string user, string message)
     {
         Console.WriteLine($"[{user}] {message}");
         return Task.CompletedTask;
     }
 
-    public Task UserJoined(string user)
+    public override Task UserJoined(string user)
     {
         Console.WriteLine($"{user} joined");
         return Task.CompletedTask;
@@ -202,21 +252,11 @@ public class ChatClient : G9SignalRSuperNetCoreClient<ChatClient, IChatHubMethod
 }
 ```
 
-**Client — `Program.cs`**
-
-```csharp
-var client = new ChatClient("https://localhost:7159");
-await client.ConnectAsync();
-await client.Server.SendMessage("Iman", "Hello, world");
-Console.ReadLine();
-await client.DisconnectAsync();
-```
-
 ---
 
 ## Sample with JWT authentication
 
-The library exposes a dedicated authentication route (default `/AuthHub`) that exchanges arbitrary credentials for a JWT, then a protected hub route (default `/SecureHub`) that requires the token. The JWT is sent over the `access_token` query string so it works with WebSockets out of the box.
+The library ships a dedicated authentication route (`/AuthHub` by convention) that exchanges arbitrary credentials for a JWT, then a protected hub route (`/SecureHub`) that requires the token. The token is sent on the `access_token` query string so it works over WebSockets out of the box.
 
 **Server — `SecureHub.cs`**
 
@@ -229,48 +269,68 @@ using Microsoft.IdentityModel.Tokens;
 
 public class SecureHub : G9AHubBaseWithJWTAuth<SecureHub, IChatClient>
 {
-    private const string JwtSecret = "replace-with-a-strong-secret-of-at-least-32-bytes-please-do-not-ship-this";
+    private const string JwtSecret = "replace-with-a-strong-secret-of-at-least-32-bytes";
+    private const string Issuer = "G9TM";
+    private const string Audience = "G9TM";
 
     private static readonly G9JWTokenFactory TokenTemplate =
         G9JWTokenFactory.GenerateJWTToken(
-            JwtSecret,
-            issuer: "G9TM",
-            audience: "G9TM",
-            expires: DateTime.UtcNow.AddDays(3),
-            securityAlgorithm: G9ESecurityAlgorithms.HmacSha256);
+            JwtSecret, Issuer, Audience, DateTime.UtcNow.AddDays(3),
+            G9ESecurityAlgorithms.HmacSha256);
+
+    public static TokenValidationParameters TokenValidationParameters
+        => TokenTemplate.ValidationParameters!;
 
     public override string RoutePattern() => "/SecureHub";
     public override string AuthAndGetJWTRoutePattern() => "/AuthHub";
 
-    public override Task<(G9JWTokenFactory, object?)> AuthenticateAndGenerateJwtTokenAsync(
+    public static Task<(G9JWTokenFactory factory, object? extra)> AuthenticateAsync(
         object authorizeData, Hub authHub)
     {
-        // Replace this with a real credentials check (DB, Identity, etc.)
+        // Replace with a real check (DB, Identity, etc.)
         if (authorizeData?.ToString() == "valid-credentials")
         {
             var token = G9JWTokenFactory.GenerateJWTToken(
-                JwtSecret, username: "Iman", role: "admin",
-                issuer: "G9TM", audience: "G9TM",
-                expires: DateTime.UtcNow.AddDays(3));
-            return Task.FromResult<(G9JWTokenFactory, object?)>((token, new { Welcome = "Hi Iman" }));
+                JwtSecret, "Iman", "admin", Issuer, Audience, DateTime.UtcNow.AddDays(3));
+            return Task.FromResult<(G9JWTokenFactory, object?)>(
+                (token, new { Welcome = "Hi Iman" }));
         }
 
         return Task.FromResult<(G9JWTokenFactory, object?)>(
             (G9JWTokenFactory.RejectAuthorize("Invalid credentials"), null));
     }
 
+    public override Task<(G9JWTokenFactory, object?)> AuthenticateAndGenerateJwtTokenAsync(
+        object authorizeData, Hub authHub) => AuthenticateAsync(authorizeData, authHub);
+
     public override TokenValidationParameters GetAuthorizeTokenValidationForHub()
-        => TokenTemplate.ValidationParameters!;
+        => TokenValidationParameters;
 
     public Task SendMessage(string user, string message)
         => Clients.All.ReceiveMessage(user, message);
 }
 ```
 
+**Server — `Program.cs`**
+
+```csharp
+builder.Services.AddSignalRSuperNetCoreCore();
+builder.Services.AddSignalRSuperNetCoreJwt(
+    hubPath: "/SecureHub",
+    validationParameters: SecureHub.TokenValidationParameters);
+
+var app = builder.Build();
+
+app.AddSignalRSuperNetCoreJwtHub<SecureHub, IChatClient>(
+    hubRoutePattern: "/SecureHub",
+    authRoutePattern: "/AuthHub",
+    authenticate: SecureHub.AuthenticateAsync);
+```
+
 **Client**
 
 ```csharp
-var client = new SecureHubClient("https://localhost:7159"); // generated, see below
+var client = new SecureHubClientWithJWTAuth("https://localhost:7159");
 
 var auth = await client.AuthorizeAsync("valid-credentials");
 if (!auth.IsAccepted)
@@ -283,13 +343,11 @@ await client.ConnectAsync();
 await client.Server.SendMessage("Iman", "Hello secure world");
 ```
 
-`AuthorizeAsync` returns a `G9DtAuthorizeResult` with `IsAccepted`, `JWToken`, `RejectionReason`, and `ExtraData`. The token is cached internally and used automatically when you call `ConnectAsync()`. You can also pass an existing token explicitly via `ConnectAsync(string jwToken)`.
-
----
+`AuthorizeAsync` returns a `G9DtAuthorizeResult` with `IsAccepted`, `JWToken`, `RejectionReason`, and `ExtraData`. The token is cached in the client and used automatically on `ConnectAsync()`. To pass a token explicitly: `await client.ConnectAsync(jwToken)`.
 
 ## Sample with sessions
 
-`G9AHubBaseWithSession<THub, TClient, TSession>` adds a thread-safe session store keyed by user identifier (or connection id when there is no user). Multiple connections from the same user share one session and a connection counter, which makes "Is user X online?" cheap.
+`G9AHubBaseWithSession<THub, TClient, TSession>` adds a thread-safe per-user session keyed by user identifier (or connection id when there is no user). Multiple connections from the same user share one session and a connection counter.
 
 **Define a session**
 
@@ -303,6 +361,8 @@ public class ChatSession : G9ASession
 }
 ```
 
+> Custom fields you add are not automatically thread-safe. The framework manages `ConnectionCounts` and `LastActivityDateTime` atomically; for your own counters use `Interlocked` or a lock.
+
 **Hub with session**
 
 ```csharp
@@ -313,7 +373,7 @@ public class ChatHubWithSession
 
     public Task SendMessage(string message)
     {
-        Session.MessagesSent++;
+        Interlocked.Increment(ref _messagesSent); // your own field
         return Clients.All.ReceiveMessage(Session.DisplayName ?? "anon", message);
     }
 
@@ -321,89 +381,168 @@ public class ChatHubWithSession
 }
 ```
 
-You can call `ChatHubWithSession.CleanupExpiredSessions(TimeSpan.FromMinutes(30))` from a background job to evict idle sessions.
+Register the session store once during startup:
 
----
+```csharp
+builder.Services.AddSignalRSuperNetCoreCore();
+builder.Services.AddG9SignalRSuperNetCoreSessionStore<ChatSession>();
+app.AddSignalRSuperNetCoreServerHub<ChatHubWithSession, IChatClient>("/chat-session");
+```
+
+You can call `CleanupExpiredSessions(TimeSpan.FromMinutes(30))` from a background job to evict idle sessions.
 
 ## Sample with JWT + sessions (recommended)
 
 For most production hubs, you want both. `G9AHubBaseWithSessionAndJWTAuth` combines them, and the auth user identifier is used as the session key automatically.
 
 ```csharp
-public class AppHub
-    : G9AHubBaseWithSessionAndJWTAuth<AppHub, IChatClient, ChatSession>
+public class AppHub :
+    G9AHubBaseWithSessionAndJWTAuth<AppHub, IChatClient, ChatSession>
 {
-    private readonly ILogger<AppHub> _logger;
+    public const string HubRoute = "/SecureHub";
+    public const string AuthRoute = "/AuthHub";
 
-    public AppHub(ILogger<AppHub> logger) => _logger = logger;
+    public static TokenValidationParameters TokenValidationParameters { get; } =
+        BuildTokenTemplate().ValidationParameters!;
 
-    public override string RoutePattern() => "/SecureHub";
-    public override string AuthAndGetJWTRoutePattern() => "/AuthHub";
+    public override string RoutePattern() => HubRoute;
+    public override string AuthAndGetJWTRoutePattern() => AuthRoute;
+
+    public static Task<(G9JWTokenFactory, object?)> AuthenticateAsync(
+        object authorizeData, Hub authHub)
+    {
+        // ... your credential check ...
+    }
 
     public override Task<(G9JWTokenFactory, object?)> AuthenticateAndGenerateJwtTokenAsync(
-        object authorizeData, Hub authHub) => /* same as JWT sample */ ...;
+        object authorizeData, Hub authHub) => AuthenticateAsync(authorizeData, authHub);
 
-    public override TokenValidationParameters GetAuthorizeTokenValidationForHub() => ...;
+    public override TokenValidationParameters GetAuthorizeTokenValidationForHub()
+        => TokenValidationParameters;
 
-    public async Task<List<string>> GetRecentMessages()
+    public Task<List<string>> GetRecentMessages()
     {
         Session.MessagesSent++;
-        return await Task.FromResult(new List<string> { "msg1", "msg2" });
+        return Task.FromResult(new List<string> { "msg1", "msg2" });
     }
+
+    private static G9JWTokenFactory BuildTokenTemplate() =>
+        G9JWTokenFactory.GenerateJWTToken(
+            jwtSecret: "replace-me", issuer: "G9TM", audience: "G9TM",
+            expires: DateTime.UtcNow.AddDays(3));
 }
 ```
 
-Register and map:
+Wire it up:
 
 ```csharp
-builder.Services.AddSignalRSuperNetCoreServerService<AppHub, IChatClient>();
-// ...
-app.AddSignalRSuperNetCoreServerHub<AppHub, IChatClient>();
+builder.Services.AddSignalRSuperNetCoreCore();
+builder.Services.AddG9SignalRSuperNetCoreSessionStore<ChatSession>();
+builder.Services.AddSignalRSuperNetCoreJwt(
+    AppHub.HubRoute, AppHub.TokenValidationParameters);
+
+var app = builder.Build();
+
+app.AddSignalRSuperNetCoreJwtHub<AppHub, IChatClient>(
+    hubRoutePattern: AppHub.HubRoute,
+    authRoutePattern: AppHub.AuthRoute,
+    authenticate: AppHub.AuthenticateAsync);
 ```
 
 ---
 
-## Auto-generated client helpers
+## Pluggable session store
 
-Add `G9SignalRSuperNetCore.Server.ClientInterfaceGenerator` to your **server** project. After every build, an MSBuild task scans your hubs and writes a `GeneratedClientHelpers.txt` file next to your project. It contains:
-
-- A `I{HubName}Methods` interface mirroring your public hub methods
-- A `I{HubName}Listeners` interface mirroring the client interface methods
-- A `{HubName}Client` (or `{HubName}ClientWithJWTAuth`) class wired to the right base class and route pattern
-
-Copy the generated content into your client project (or include the file via a build target). You get a strongly typed client like:
+Session storage is exposed as `IG9SessionStore<TSession>` and resolved through DI. The default registration uses `G9CInMemorySessionStore<TSession>`, which is thread-safe and zero-config:
 
 ```csharp
-public class CustomHubWithJWTAuthAndSessionClientWithJWTAuth :
-    G9SignalRSuperNetCoreClientWithJWTAuth<
-        CustomHubWithJWTAuthAndSessionClientWithJWTAuth,
-        ICustomHubWithJWTAuthAndSessionMethodsWithJWTAuth,
-        ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth>,
-    ICustomHubWithJWTAuthAndSessionListenersWithJWTAuth
-{
-    public CustomHubWithJWTAuthAndSessionClientWithJWTAuth(string serverUrl, string? jwToken = null, ...)
-        : base($"{serverUrl}/SecureHub", $"{serverUrl}/AuthHub", jwToken, ...) { }
+builder.Services.AddG9SignalRSuperNetCoreSessionStore<ChatSession>();
+```
 
-    public Task LoginResult(bool accepted) { /* default impl */ }
-    public Task ReceiveMessage(string user, string message) { /* default impl */ }
+The contract:
+
+```csharp
+public interface IG9SessionStore<TSession> where TSession : G9ASession, new()
+{
+    ValueTask<TSession> GetOrCreateAsync(string sessionId, Func<TSession> factory, CancellationToken ct = default);
+    ValueTask<int>      ReleaseAsync   (string sessionId, CancellationToken ct = default);
+    bool                TryGet         (string sessionId, out TSession? session);
+    bool                IsConnected    (string sessionId);
+    int                 CleanupExpiredSessions(TimeSpan threshold);
 }
 ```
 
-XML doc comments on hub methods and on the client interface are preserved in the generated code.
+`GetOrCreateAsync` atomically creates a session on first connection and increments the connection counter. `ReleaseAsync` atomically decrements and removes the session when the counter hits zero. The in-memory implementation is lock-free; counters use `Interlocked`.
 
-To exclude a public hub method from generation:
+For horizontal scale-out, replace the registration with a distributed implementation. A Redis-backed store is on the 2.1 roadmap and ships in a separate package so the core library has no Redis dependency.
+
+```csharp
+// 2.1 (preview):
+builder.Services.AddG9SignalRSuperNetCoreRedisSessionStore<ChatSession>(
+    redisConnectionString: builder.Configuration.GetConnectionString("Redis"));
+```
+
+## Auto-generated typed client
+
+Add `G9SignalRSuperNetCore.Server.ClientInterfaceGenerator` to your **server** project. After every build, an MSBuild task scans your hubs and writes a `GeneratedClientHelpers.txt` file next to the project containing:
+
+- An `I{HubName}Methods` interface mirroring your public hub methods (`Task` and `Task<T>` signatures).
+- An `I{HubName}Listeners` interface mirroring your client interface methods.
+- A `{HubName}Client` (or `{HubName}ClientWithJWTAuth`) class that:
+  - Wires the connection at the hub's declared route pattern.
+  - Provides a typed `Server` proxy implementing `I{HubName}Methods` with concrete `HubConnection.InvokeCoreAsync`/`SendCoreAsync` calls (no Castle, no reflection).
+  - Implements `I{HubName}Listeners` with default no-op overrides you can override.
+  - Registers all listener callbacks through typed `Connection.On<...>(...)` calls.
+
+Copy the generated content into your client project (or include the file via a build target). Example output:
+
+```csharp
+public partial class ChatHubClient :
+    G9SignalRSuperNetCoreClient<ChatHubClient, IChatHubMethods, IChatHubListeners>,
+    IChatHubListeners
+{
+    public ChatHubClient(string serverUrl, /* … */) : base($"{serverUrl}/chat", /* … */) { }
+
+    public override IChatHubMethods Server => _serverProxy ??= new ChatHubServerProxy(this);
+
+    protected override void RegisterListenerMethods()
+    {
+        Connection.On<string, string>(nameof(ReceiveMessage), (u, m) => ReceiveMessage(u, m));
+        Connection.On<string>(nameof(UserJoined), u => UserJoined(u));
+    }
+
+    public virtual Task ReceiveMessage(string user, string message) => Task.CompletedTask;
+    public virtual Task UserJoined(string user) => Task.CompletedTask;
+}
+
+internal sealed class ChatHubServerProxy : IChatHubMethods
+{
+    private readonly ChatHubClient _owner;
+    public ChatHubServerProxy(ChatHubClient owner) { _owner = owner; }
+
+    public Task SendMessage(string user, string message)
+        => _owner.Connection.SendCoreAsync(nameof(SendMessage),
+            new object?[] { user, message });
+}
+```
+
+The output is fully AOT-safe. Override the listener methods in a subclass to handle inbound messages.
+
+To exclude a hub method from generation:
 
 ```csharp
 [G9AttrExcludeFromClientGeneration]
 public Task InternalDiagnostic() => Task.CompletedTask;
 ```
 
-To prevent the client from invoking a method server-side at all (deny by policy):
+To deny a method by policy (always rejected at the auth layer):
 
 ```csharp
 [G9AttrDenyAccess]
 public Task DangerousAction() => Task.CompletedTask;
 ```
+
+XML doc comments on hub methods and on the client interface are preserved in the generated code.
 
 ---
 
@@ -416,58 +555,54 @@ await client.Server.SendMessage("Iman", "Hi");
 List<string> result = await client.Server.GetRecentMessages();
 ```
 
-A Castle DynamicProxy implements your server-methods interface. `Task` and `Task<T>` are supported; other return types throw `NotSupportedException`.
+Each method on the server interface maps to a single typed call on the underlying `HubConnection`. `Task` methods use `SendCoreAsync`; `Task<T>` methods use `InvokeCoreAsync<T>`. No `MethodInfo.Invoke`, no boxing of return values.
 
 ### Listener wiring
 
-Implement the listener interface on your client class and the base wires up `Connection.On(...)` for every method via reflection. Up to 8 parameters are supported.
-
-### Lambda listeners
+The generated client overrides `RegisterListenerMethods()` and registers each listener with a typed `Connection.On<...>(...)` overload. You override the handler methods in your subclass:
 
 ```csharp
-client.AssignListenerEvent(
-    s => s.ReceiveMessage,
-    (string user, string message) =>
+public sealed class MyClient(string url) : ChatHubClient(url)
+{
+    public override Task ReceiveMessage(string user, string msg)
     {
-        Console.WriteLine($"[{user}] {message}");
+        Console.WriteLine($"[{user}] {msg}");
         return Task.CompletedTask;
-    });
+    }
+}
 ```
 
-### Request/response helpers
+### Automatic reconnect and timeouts
+
+Automatic reconnect (`WithAutomaticReconnect()`) is enabled by default and the server timeout is 60 seconds. Both can be customized through the `customConfigureBuilder` and `configureHttpConnection` constructor parameters.
+
+### Connection access
+
+If you need to drop down to raw SignalR APIs (streaming with `IAsyncEnumerable<T>`, manual `On` registrations, etc.), the underlying `HubConnection` is exposed via `client.Connection`.
 
 ```csharp
-// Wait for a one-shot callback (default 1-minute timeout)
-var (a, b) = await client.ListenOnceAsync<string, string>(s => s.TestResult);
-
-// Send and wait for the matching callback in one call (no race conditions)
-var result = await client.SendThenListenOnceAsync<string, string>(
-    sendPart => sendPart.TestResult("Test1", "Test2"),
-    s => s.TestResult);
+await foreach (var item in client.Connection.StreamAsync<int>("MyStream"))
+{
+    Console.WriteLine(item);
+}
 ```
 
-### Streaming
+### IAsyncDisposable
 
-If a listener method on your interface returns `IAsyncEnumerable<T>`, the client opens a stream channel via `Connection.StreamAsChannelCoreAsync` and dispatches each item to your handler.
-
-### Reconnect and timeouts
-
-Automatic reconnect is enabled by default (`WithAutomaticReconnect()`), and the server timeout is 60 seconds. Both can be customized through `customConfigureBuilder` on the constructor.
-
----
+The base client implements `IAsyncDisposable`. `await using var client = new ChatHubClient(url);` disposes the connection cleanly.
 
 ## Attributes
 
 | Attribute | Effect |
 |---|---|
-| `[G9AttrDenyAccess]` | Applies an authorization policy that always denies. Use to lock down internal methods. |
-| `[G9AttrExcludeFromClientGeneration]` | Tells the client generator to skip a hub method. |
+| `[G9AttrDenyAccess]` | Applies an authorization policy that always denies. Use to lock framework methods that should not be callable from clients. |
+| `[G9AttrExcludeFromClientGeneration]` | Tells the build-time generator to skip a hub method. The method still works on the server, it just doesn't appear in the typed client. |
 
-The framework already applies these to base methods (like `RoutePattern`, `ConfigureHub`, `AuthAndGetJWTRoutePattern`, etc.), so they never leak into your generated client.
+The framework already applies these to base methods (such as `RoutePattern`, `ConfigureHub`, `AuthAndGetJWTRoutePattern`, lifecycle hooks, session helpers), so they never leak into your generated client.
 
 ## JWT helper
 
-`G9JWTokenFactory` covers most token shapes you need:
+`G9JWTokenFactory` covers the common token shapes:
 
 ```csharp
 // Username + role
@@ -481,22 +616,49 @@ var token = G9JWTokenFactory.GenerateJWTToken(
 
 // Custom claim list
 var token2 = G9JWTokenFactory.GenerateJWTToken(secret, "G9TM", "G9TM",
-    new[] { new Claim("plan", "pro") }, expires: DateTime.UtcNow.AddDays(1));
+    new[] { new Claim("plan", "pro") },
+    expires: DateTime.UtcNow.AddDays(1));
 
 // Reject the request
 var rejected = G9JWTokenFactory.RejectAuthorize("Invalid credentials");
 ```
 
+A single `JwtSecurityTokenHandler` instance is reused process-wide.
+
 Supported algorithms (`G9ESecurityAlgorithms`): `HmacSha256/384/512`, `RsaSha256/384/512`, `RsaSsaPssSha256/384/512`, `EcdsaSha256/384/512`, `Aes128/192/256KW`, `RsaOAEP`, `Rsa1_5`, `None`.
 
 ---
 
+## Scaling to many connections
+
+A single ASP.NET Core SignalR server typically handles up to ~100,000 WebSocket connections per process under proper tuning. To exceed that and reach hundreds of thousands or millions, scale out across servers:
+
+1. **Pick a backplane.** For most teams the simplest answer is **Azure SignalR Service**; for self-hosted clusters in the same data centre, a **Redis backplane** is fine. Both are first-class ASP.NET Core SignalR scale-out targets and compose cleanly with this library.
+2. **Sticky sessions.** With Redis, configure your load balancer for session affinity by `connectionId` or set a connection-aware routing strategy. With Azure SignalR Service, the service handles affinity for you.
+3. **Tune the OS.** On Linux: raise `ulimit -n` (file descriptors), increase `net.core.somaxconn`, expand the ephemeral port range, and ensure ports are not exhausted by short-lived backplane connections.
+4. **Tune Kestrel.** Set `KestrelServerLimits.MaxConcurrentConnections` and `MaxConcurrentUpgradedConnections` in line with your hardware.
+5. **Move session state out of process.** This is what `IG9SessionStore<TSession>` is designed for. The default in-memory store works for a single process; for multi-process clusters, swap in a distributed implementation.
+
+This library does not embed any correctness-critical state in static fields. The same hub source code that runs in a single dev process runs unchanged behind a backplane.
+
+A coming **G9SignalRSuperNetCore.Server.Redis** package will provide a turnkey distributed `IG9SessionStore<TSession>` plus an `AddG9SignalRBackplane(...)` helper that wires `Microsoft.AspNetCore.SignalR.StackExchangeRedis`.
+
+## Thread safety contract
+
+The library is designed for high-concurrency hubs. Specifically:
+
+- **Sessions are linearizable on connect/disconnect.** `G9ASession.ConnectionCounts` is mutated only through `Interlocked.Increment` / `Interlocked.Decrement`. Concurrent reconnect storms from the same user yield a final count equal to (#connects − #disconnects), and the counter is never negative at any observable point.
+- **`LastActivityDateTime` never tears.** It is read and written through `Interlocked.Read` / `Interlocked.Exchange` on the underlying `long` ticks. You can read it from any thread and never see a partially-written `DateTime`.
+- **Session removal is reference-equality safe.** A session is removed from the in-memory store only if no other connect has raced in and replaced the instance.
+- **JWT route registry is read-mostly.** Registrations occur during startup; reads on every authorize call are lock-free `ConcurrentDictionary` lookups.
+- **`G9JWTokenFactory` is process-shared.** A single `JwtSecurityTokenHandler` is reused; the handler is documented as thread-safe for issuance and validation.
+
+Custom fields you add to your `TSession` subclass are NOT automatically thread-safe. Synchronize them yourself with `Interlocked` or a lock.
+
 ## Build and test
 
-This repository uses the standard .NET CLI:
-
 ```powershell
-# Restore + build everything in Release
+# Restore + Release build the whole solution
 dotnet build G9SignalRSuperNetCore/G9SignalRSuperNetCore.sln -c Release
 
 # Run the sample web server
@@ -506,37 +668,105 @@ dotnet run --project G9SignalRSuperNetCore/G9SignalRSuperNetCore.WebServer -c Re
 dotnet run --project G9SignalRSuperNetCore/G9SignalRSuperNetCore.ConsoleClient -c Release
 ```
 
-The Release build is warning-clean. CI runs through `azure-pipelines.yml` and publishes the three NuGet packages on master.
+The Release build is warning-clean. CI runs through `azure-pipelines.yml` and publishes the three NuGet packages on `main`.
 
 ## Project layout
 
 ```
 G9SignalRSuperNetCore/
 ├── G9SignalRSuperNetCore.sln
-├── G9SignalRSuperNetCore.Server/                       # NuGet: server library
-│   ├── G9SignalRSuperNetCoreServer.cs                  # AddSignalRSuperNetCoreServerService / Hub
-│   ├── Classes/Abstracts/                              # G9AHubBase, JWT, session bases
-│   ├── Classes/Attributes/                             # DenyAccess, ExcludeFromClientGeneration
-│   ├── Classes/Helper/                                 # G9JWTokenFactory, deny policy
-│   ├── Classes/Hubs/                                   # G9GetJwtHub (auth route)
+├── G9SignalRSuperNetCore.Server/                            # NuGet: server library
+│   ├── G9SignalRSuperNetCoreServer.cs                       # Add… extension methods
+│   ├── Classes/Abstracts/                                   # Hub bases (4 variants) + G9ASession
+│   ├── Classes/Attributes/                                  # DenyAccess, ExcludeFromClientGeneration
+│   ├── Classes/Helper/                                      # G9JWTokenFactory, deny policy
+│   ├── Classes/Hubs/                                        # G9GetJwtHub + JWT route registry
+│   ├── Classes/Sessions/                                    # IG9SessionStore + in-memory impl
 │   └── Enums/G9ESecurityAlgorithms.cs
-├── G9SignalRSuperNetCore.Client/                       # NuGet: client library
-│   ├── G9SignalRSuperNetCoreClient.cs                  # base client + proxy + listeners
-│   └── G9SignalRSuperNetCoreClientWithJWTAuth.cs       # adds AuthorizeAsync flow
-├── G9SignalRSuperNetCore.Server.ClientInterfaceGenerator/  # NuGet: build-time generator
-├── G9SignalRSuperNetCore.Server.ClientResourceGenerator/   # MSBuild task implementation
-├── G9SignalRSuperNetCore.WebServer/                    # Sample server
-└── G9SignalRSuperNetCore.ConsoleClient/                # Sample client (uses generated helpers)
+├── G9SignalRSuperNetCore.Client/                            # NuGet: client library
+│   ├── G9SignalRSuperNetCoreClient.cs                       # AOT-safe base (no Castle)
+│   └── G9SignalRSuperNetCoreClientWithJWTAuth.cs            # adds AuthorizeAsync flow
+├── G9SignalRSuperNetCore.Server.ClientInterfaceGenerator/   # NuGet: build-time generator
+├── G9SignalRSuperNetCore.Server.ClientResourceGenerator/    # MSBuild task implementation
+├── G9SignalRSuperNetCore.WebServer/                         # Sample server
+└── G9SignalRSuperNetCore.ConsoleClient/                     # Sample client (uses generated helpers)
 ```
+
+---
+
+## Migration guide (1.x → 2.0)
+
+The 2.0 release is a hardening release. Most consumer code keeps working with small registration changes:
+
+1. **Service registration.** The old single-call helper
+
+   ```csharp
+   builder.Services.AddSignalRSuperNetCoreServerService<MyHub, IMyClient>();
+   ```
+
+   becomes the explicit composable API:
+
+   ```csharp
+   builder.Services.AddSignalRSuperNetCoreCore();
+   builder.Services.AddG9SignalRSuperNetCoreSessionStore<MySession>();   // only if hub uses sessions
+   builder.Services.AddSignalRSuperNetCoreJwt(MyHub.HubRoute, MyHub.TokenValidationParameters); // only for JWT hubs
+   ```
+
+2. **Hub mapping.** The old `app.AddSignalRSuperNetCoreServerHub<MyHub, IMyClient>()` (which read the route from a synthesized hub instance) becomes:
+
+   - For unauthenticated hubs:
+     ```csharp
+     app.AddSignalRSuperNetCoreServerHub<MyHub, IMyClient>(routePattern: "/myhub");
+     ```
+   - For JWT-authenticated hubs:
+     ```csharp
+     app.AddSignalRSuperNetCoreJwtHub<MyHub, IMyClient>(
+         hubRoutePattern: MyHub.HubRoute,
+         authRoutePattern: MyHub.AuthRoute,
+         authenticate:    MyHub.AuthenticateAsync);
+     ```
+
+   Reading the route pattern from a synthesized instance required `Reflection.Emit`-style instance creation, which is incompatible with NativeAOT and full trim. Passing routes explicitly removes that dependency.
+
+3. **Session lifecycle.** The static per-process dictionary on `G9AHubBaseWithSession*` is gone. Behavior is the same; the store comes from DI now. If your code reached into the framework's internals (it shouldn't have), the old `HubSessionStore` static field no longer exists.
+
+4. **Client proxy.** The runtime Castle DynamicProxy proxy is replaced by the build-time generator output. Regenerate your client by rebuilding the server project, then copy the new `GeneratedClientHelpers.txt` into your client project (or wire up the file as a build artifact). Override the listener methods on the generated class to receive callbacks.
+
+5. **Client helpers.** `AssignListenerEvent`, `ListenOnceAsync`, and `SendThenListenOnceAsync` from 1.x are removed. They were heavy in reflection and not AOT-safe. Equivalent patterns:
+   - To register a listener: override the typed listener method on the generated client subclass.
+   - To wait once for a server callback: use `Connection.On<T>` to register a `TaskCompletionSource<T>` handler, then `await` the TCS.
+
+6. **`Connection` is still public.** Nothing prevents you from calling `client.Connection.InvokeAsync` directly when you need to.
+
+The Castle.Core dependency is no longer present. Remove any direct references you had to it from your client project.
+
+## Roadmap
+
+The 2.x line is shipped as a sequence of focused milestones.
+
+- **2.0 — Foundation (this release).** AOT/MAUI safety, source-generator typed client, pluggable session store, lock-free session counters, encapsulated JWT registry, warning-clean Release build.
+- **2.1 — Security and policy.**
+  - `[G9AttrRequireSecureChannel]` — application-layer encryption built on `ECDH P-256` + `HKDF-SHA-256` + `AES-GCM` / `ChaCha20-Poly1305`, with public-key pinning, per-direction monotonic nonces, and replay protection. Designed for environments where TLS is unavailable or untrusted; explicitly not a multi-party end-to-end protocol.
+  - `[G9AttrRateLimit(perSecond, burst)]` — per-method rate limiting with a stable error code.
+  - `[G9AttrConnectionRequired]` — reject calls on connections not in the `Connected` state with a clear error.
+  - `[G9AttrTelemetry(name)]` — `ActivitySource` traces around hub method execution.
+  - `IG9HubMetrics` interface for plugging in custom counters.
+- **2.2 — Distributed scale-out.**
+  - `G9SignalRSuperNetCore.Server.Redis` — Redis-backed `IG9SessionStore<TSession>` and `AddG9SignalRBackplane(...)` helper.
+  - Property-based tests for session linearizability, JWT round-trip, and the secure-channel invariants.
+  - BenchmarkDotNet project measuring per-call throughput and allocation across protocol options.
+
+The order can shift in response to consumer feedback; track progress in the issues board.
 
 ## Contributing
 
-Issues and pull requests are welcome. A few guidelines that keep things smooth:
+Issues and pull requests are welcome.
 
 1. Open an issue describing the change before sending a large PR.
-2. Match the existing code style (file-scoped namespaces, XML docs on public members, `G9` prefix on public types).
-3. Make sure `dotnet build -c Release` finishes with zero warnings.
+2. Match the existing code style: file-scoped namespaces, XML docs on public members, `G9` prefix on public types.
+3. `dotnet build -c Release` must finish with zero warnings — including AOT and trim warnings attributable to G9 code.
 4. Update or add a sample under `G9SignalRSuperNetCore.WebServer` / `G9SignalRSuperNetCore.ConsoleClient` when adding new public surface.
+5. New cryptographic code (in 2.1+) must use BCL primitives only and ship with property-based tests.
 
 ## License
 
