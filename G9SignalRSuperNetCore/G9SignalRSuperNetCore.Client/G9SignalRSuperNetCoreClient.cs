@@ -37,6 +37,13 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
     public HubConnection Connection { get; protected internal set; } = null!;
 
     /// <summary>
+    ///     Reports lifecycle changes (connecting, connected, reconnecting, reconnected, disconnected,
+    ///     reconnect failed). Subscribe from your UI / logging code to surface accurate connection
+    ///     state without poking the underlying <see cref="HubConnection"/> directly.
+    /// </summary>
+    public event Action<G9DtConnectionState>? StateChanged;
+
+    /// <summary>
     ///     Gets the strongly-typed proxy that invokes server hub methods.
     /// </summary>
     /// <remarks>
@@ -77,12 +84,37 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
 
         IHubConnectionBuilder builder = new HubConnectionBuilder()
             .WithUrl(serverUrl, options => configureHttpConnection?.Invoke(options))
-            .WithAutomaticReconnect();
+            .WithAutomaticReconnect(new G9CClientReconnectPolicy());
 
         if (customConfigureBuilder != null) builder = customConfigureBuilder(builder);
 
         Connection = builder.Build();
         Connection.ServerTimeout = TimeSpan.FromSeconds(60);
+
+        // Lifecycle events — surface them through StateChanged so consumers don't poke
+        // Connection.Reconnecting / Reconnected / Closed directly.
+        Connection.Reconnecting += err =>
+        {
+            StateChanged?.Invoke(new G9DtConnectionState(
+                G9EConnectionPhase.Reconnecting, DateTime.UtcNow,
+                err?.GetType().Name + ": " + err?.Message));
+            return Task.CompletedTask;
+        };
+        Connection.Reconnected += newId =>
+        {
+            StateChanged?.Invoke(new G9DtConnectionState(
+                G9EConnectionPhase.Reconnected, DateTime.UtcNow, newId));
+            return Task.CompletedTask;
+        };
+        Connection.Closed += err =>
+        {
+            // err is null on a graceful StopAsync; non-null on terminal failure (e.g. reconnect
+            // budget exhausted). Either way, the connection is now in the Disconnected state.
+            StateChanged?.Invoke(new G9DtConnectionState(
+                G9EConnectionPhase.Disconnected, DateTime.UtcNow,
+                err is null ? null : err.GetType().Name + ": " + err.Message));
+            return Task.CompletedTask;
+        };
 
         RegisterListenerMethods();
     }
@@ -100,8 +132,22 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
     /// <summary>
     ///     Connects to the SignalR server.
     /// </summary>
-    public virtual Task ConnectAsync(CancellationToken cancellationToken = default)
-        => Connection.StartAsync(cancellationToken);
+    public virtual async Task ConnectAsync(CancellationToken cancellationToken = default)
+    {
+        StateChanged?.Invoke(new G9DtConnectionState(G9EConnectionPhase.Connecting, DateTime.UtcNow, null));
+        try
+        {
+            await Connection.StartAsync(cancellationToken).ConfigureAwait(false);
+            StateChanged?.Invoke(new G9DtConnectionState(G9EConnectionPhase.Connected, DateTime.UtcNow, Connection.ConnectionId));
+        }
+        catch (Exception ex)
+        {
+            StateChanged?.Invoke(new G9DtConnectionState(
+                G9EConnectionPhase.ConnectFailed, DateTime.UtcNow,
+                ex.GetType().Name + ": " + ex.Message));
+            throw;
+        }
+    }
 
     /// <summary>
     ///     Disconnects from the SignalR server.
