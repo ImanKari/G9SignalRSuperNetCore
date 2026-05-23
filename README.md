@@ -573,67 +573,162 @@ builder.Services.AddG9SignalRSuperNetCoreRedisSessionStore<ChatSession>(
 
 ## Auto-generated typed client
 
-Reference `G9SignalRSuperNetCore.Server` (or have it transitively from a shared library) plus `G9SignalRSuperNetCore.Client`. A Roslyn `IIncrementalGenerator` runs on every keystroke and emits a typed client into `obj/Generated/G9SignalRSuperNetCore.SourceGenerator/` containing:
+The library ships a Roslyn `IIncrementalGenerator` (`G9SignalRSuperNetCore.SourceGenerator`) that scans every project that consumes the library, finds your hubs, and emits a strongly-typed, AOT-safe client for each one. No reflection, no `MethodInfo.Invoke`, no Castle DynamicProxy.
 
-- `I{HubName}Methods` — methods interface mirroring your hub. `Task`, `Task<T>`, `ValueTask`, `ValueTask<T>`, `IAsyncEnumerable<T>` are all supported.
-- `I{HubName}Listeners` — listener interface mirroring your client interface.
-- `{HubName}Client` (or `{HubName}ClientWithJWTAuth`) — partial class wired to the hub's declared route, with a typed `Server` proxy (concrete `HubConnection.InvokeCoreAsync`/`SendCoreAsync`/`StreamAsyncCore` calls — no Castle, no reflection) and default no-op listener overrides you can override in your own code.
+### How to wire it up
+
+The generator ships **embedded inside the `G9SignalRSuperNetCore.Server` package** under `analyzers/dotnet/cs`. Three project layouts are supported:
+
+**Layout A — single project** (rare; you can't do this if your client is a different platform than your server):
+
+```xml
+<ItemGroup>
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.4.1" />
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.4.1" />
+</ItemGroup>
+```
+
+The generator runs on the project that defines the hub, emits the client into the same compilation, and you get `Server`, `IChatHubMethods`, `IChatHubListeners`, `ChatHubClient` all in one assembly.
+
+**Layout B — separate Server / Client projects with a Shared library** (recommended):
+
+```
+MyApp.Shared/        // referenced by both Server and Client
+  ChatHub.cs         // your hub class
+  IChatClient.cs     // your listener interface
+
+MyApp.Server/        // ASP.NET Core process
+  Program.cs
+
+MyApp.Client/        // console / MAUI / WPF / Blazor
+  Program.cs
+```
+
+```xml
+<!-- MyApp.Shared.csproj -->
+<ItemGroup>
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.4.1" />
+</ItemGroup>
+
+<!-- MyApp.Server.csproj -->
+<ItemGroup>
+  <ProjectReference Include="..\MyApp.Shared\MyApp.Shared.csproj" />
+</ItemGroup>
+
+<!-- MyApp.Client.csproj -->
+<ItemGroup>
+  <ProjectReference Include="..\MyApp.Shared\MyApp.Shared.csproj" />
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.4.1" />
+</ItemGroup>
+```
+
+The generator runs in `MyApp.Shared` (because that's where the hub class lives) and the typed `ChatHubClient` is emitted into `MyApp.Shared`'s compilation. `MyApp.Client` references the Shared library and gets the typed client for free.
+
+**Layout C — generator only on the client side** (when the client project doesn't reference the shared library):
+
+```xml
+<!-- MyApp.Client.csproj -->
+<ItemGroup>
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.4.1"
+                    PrivateAssets="all" />        <!-- only the analyzer is needed -->
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.4.1" />
+</ItemGroup>
+```
+
+`PrivateAssets="all"` keeps the analyzer (the generator) reachable but suppresses the runtime Server assembly so your client doesn't accidentally pull ASP.NET Core into a MAUI app.
+
+### What it generates
+
+For a hub like:
 
 ```csharp
-public partial class ChatHubClient :
-    G9SignalRSuperNetCoreClient<ChatHubClient, IChatHubMethods, IChatHubListeners>,
-    IChatHubListeners
+public class ChatHub : G9AHubBase<ChatHub, IChatClient>
 {
-    public ChatHubClient(string serverUrl, /* … */) : base($"{serverUrl}/chat", /* … */) { }
+    public const string Route = "/chat";
+    public override string RoutePattern() => Route;
 
-    public override IChatHubMethods Server => _serverProxy ??= new ChatHubServerProxy(this);
+    /// <summary>Sends a message to everyone in the room.</summary>
+    public Task SendMessage(string user, string message)
+        => Clients.All.ReceiveMessage(user, message);
 
-    protected override void RegisterListenerMethods()
-    {
-        Connection.On<string, string>(nameof(ReceiveMessage), (u, m) => InvokeListener_ReceiveMessage(u, m));
-        Connection.On<string>(nameof(UserJoined), u => InvokeListener_UserJoined(u));
-        Connection.On<string>(nameof(UserLeft),   u => InvokeListener_UserLeft(u));
-    }
-
-    public virtual Task ReceiveMessage(string user, string message) => Task.CompletedTask;
-    public virtual Task UserJoined(string user) => Task.CompletedTask;
-    public virtual Task UserLeft(string user)   => Task.CompletedTask;
+    public Task<List<string>> GetRecentMessages() => /* ... */;
 }
 
-internal sealed class ChatHubServerProxy : IChatHubMethods
+public interface IChatClient
 {
-    private readonly ChatHubClient _owner;
-    public ChatHubServerProxy(ChatHubClient owner) => _owner = owner;
-
-    public Task SendMessage(string user, string message)
-        => _owner.Connection.SendCoreAsync(nameof(SendMessage),
-            new object?[] { user, message }, CancellationToken.None);
-
-    public Task<List<string>> GetRecentMessages()
-        => _owner.Connection.InvokeCoreAsync<List<string>>(nameof(GetRecentMessages),
-            Array.Empty<object?>(), CancellationToken.None);
+    Task ReceiveMessage(string user, string message);
+    Task UserJoined(string user);
 }
 ```
 
-The output is fully AOT-safe. Override the listener methods in a subclass (or in a partial declaration) to handle inbound messages.
+the generator emits (into `obj/Generated/G9SignalRSuperNetCore.SourceGenerator/.../ChatHub.g.cs`):
 
-**Diagnostics**: the generator publishes IDs `G9001…G9007` so the IDE highlights bad signatures (unsupported return types, listeners that don't return `Task`/`ValueTask`, parameter overflow, generic methods, missing route patterns, missing listener interfaces, internal generator errors). To inspect the generated source, set `<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>` in the consuming csproj.
+- `IChatHubMethods` — methods interface mirroring the hub. `Task`, `Task<T>`, `ValueTask`, `ValueTask<T>`, `IAsyncEnumerable<T>`, and `CancellationToken` parameters are all supported.
+- `IChatHubListeners` — listener interface mirroring `IChatClient`.
+- `ChatHubClient` — partial class wired to `serverUrl + "/chat"`, with the typed `Server` proxy and default no-op listener overrides.
+- `ChatHubServerProxy` — internal sealed class that turns each method on `IChatHubMethods` into a single `HubConnection.SendCoreAsync` / `InvokeCoreAsync<T>` / `StreamAsyncCore<T>` call.
 
-To exclude a hub method from generation:
+XML doc comments on hub methods and on the listener interface are forwarded into the generated code, so IntelliSense shows your descriptions on the client side.
+
+### How to use it
+
+Subclass the generated `{HubName}Client` and override the listener methods you care about:
+
+```csharp
+var client = new MyChatClient("https://localhost:7159");
+await client.ConnectAsync();
+await client.Server.SendMessage("Iman", "Hello");
+List<string> recent = await client.Server.GetRecentMessages();
+
+public sealed class MyChatClient(string url) : ChatHubClient(url)
+{
+    public override Task ReceiveMessage(string user, string message)
+    {
+        Console.WriteLine($"[{user}] {message}");
+        return Task.CompletedTask;
+    }
+
+    public override Task UserJoined(string user)
+    {
+        Console.WriteLine(user + " joined");
+        return Task.CompletedTask;
+    }
+}
+```
+
+### Knobs and escape hatches
+
+Exclude a hub method from generation:
 
 ```csharp
 [G9AttrExcludeFromClientGeneration]
 public Task InternalDiagnostic() => Task.CompletedTask;
 ```
 
-To deny a method by policy (always rejected at the auth layer):
+Deny a method by policy at the auth layer:
 
 ```csharp
 [G9AttrDenyAccess]
 public Task DangerousAction() => Task.CompletedTask;
 ```
 
-XML doc comments on hub methods and on the client interface are forwarded into the generated code.
+Inspect the generated source in your IDE: set `<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>` in the consuming `.csproj`. The output appears under `obj/Generated/G9SignalRSuperNetCore.SourceGenerator/G9SignalRSuperNetCore.SourceGenerator.G9HubClientGenerator/`.
+
+### Diagnostics
+
+The generator publishes stable diagnostic IDs so the IDE highlights bad hub signatures at design time:
+
+| ID | Severity | Meaning |
+|---|---|---|
+| `G9001` | Warning | Hub method returns an unsupported type. Use `Task`, `Task<T>`, `ValueTask`, `ValueTask<T>`, or `IAsyncEnumerable<T>`. |
+| `G9002` | Warning | Listener method returns something other than `Task` / `ValueTask`. |
+| `G9003` | Warning | Hub method has more than 16 parameters (SignalR limit). |
+| `G9004` | Warning | Generic hub methods are not supported. |
+| `G9005` | Warning | Hub class is missing a `RoutePattern()` override. |
+| `G9006` | Warning | Hub is missing the listener interface generic argument. |
+| `G9007` | Error | Internal generator error — please file an issue with the diagnostic message. |
+
+The generator runs incrementally, so editing your hub updates the typed client on the next keystroke without a full rebuild.
 
 ---
 
