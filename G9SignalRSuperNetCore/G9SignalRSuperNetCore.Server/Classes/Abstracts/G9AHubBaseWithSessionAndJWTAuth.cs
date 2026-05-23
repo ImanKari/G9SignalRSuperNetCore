@@ -1,69 +1,60 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using G9SignalRSuperNetCore.Server.Classes.Attributes;
+using G9SignalRSuperNetCore.Server.Classes.Sessions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 
 /// <summary>
-///     A base class for SignalR hubs that includes session management for connected users and JWT authentication support.
+///     A high-performance base class for SignalR hubs that combines JWT authentication
+///     with integrated, pluggable per-user session management.
 /// </summary>
-/// <typeparam name="TTargetClass">
-///     The derived hub class inheriting from
-///     <see
-///         cref="G9AHubBaseWithSessionAndJWTAuth{TTargetClass, TClientSideMethodsInterface, TSession}" />
-///     .
-/// </typeparam>
-/// <typeparam name="TSession">
-///     The session class derived from <see cref="G9ASession" /> that stores user session details.
-/// </typeparam>
-/// <typeparam name="TClientSideMethodsInterface">
-///     An interface that defines client-side methods which can be called from the server.
-/// </typeparam>
+/// <typeparam name="TTargetClass">The derived hub type.</typeparam>
+/// <typeparam name="TSession">The session type derived from <see cref="G9ASession"/>.</typeparam>
+/// <typeparam name="TClientSideMethodsInterface">The client-side methods interface.</typeparam>
 /// <remarks>
-///     The class is marked with the <see cref="AuthorizeAttribute" /> to enforce that authentication is required
-///     for clients to connect and interact with the Hub.
+///     <para>
+///         The hub is decorated with <see cref="AuthorizeAttribute"/>; clients must present a
+///         valid JWT issued by the matching <see cref="G9AHubBaseWithJWTAuth{TTargetClass,TClientSideMethodsInterface}"/> route.
+///     </para>
+///     <para>
+///         The session store is resolved from the dependency injection container; see
+///         <see cref="IG9SessionStore{TSession}"/>.
+///     </para>
 /// </remarks>
 [Authorize]
-public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideMethodsInterface, TSession>
+public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TClientSideMethodsInterface, TSession>
     : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
     where TTargetClass : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
     where TClientSideMethodsInterface : class
     where TSession : G9ASession, new()
 {
-    #region Static Fields And Properties
-
     /// <summary>
-    ///     Cached GUID key for the hub type to avoid repeated reflection calls.
+    ///     Initializes a new <see cref="G9AHubBaseWithSessionAndJWTAuth{TTargetClass,TClientSideMethodsInterface,TSession}"/>.
     /// </summary>
-    private static readonly Guid HubTypeKey = typeof(TTargetClass).GUID;
+    [RequiresDynamicCode("SignalR Hub<T> proxies require dynamic code at runtime.")]
+    protected G9AHubBaseWithSessionAndJWTAuth() { }
 
-    /// <summary>
-    ///     Thread-safe dictionary storing session data segmented by hub type.
-    /// </summary>
-    private static readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, TSession>>
-        HubSessionStore = new();
+    #region Fields
 
-    /// <summary>
-    ///     Cached dictionary instance for the current hub type's sessions.
-    /// </summary>
-    private static readonly ConcurrentDictionary<string, TSession> CurrentHubSessions =
-        HubSessionStore.GetOrAdd(HubTypeKey, _ => new ConcurrentDictionary<string, TSession>());
+    private string? _cachedSessionIdentifier;
+    private TSession? _cachedSession;
+    private IG9SessionStore<TSession>? _sessionStore;
 
     #endregion
 
-    #region Instance Fields And Properties
+    #region Properties
 
-    /// <summary>
-    ///     Cached session identifier to avoid repeated string concatenations.
-    /// </summary>
-    private string? _cachedSessionIdentifier;
+    private IG9SessionStore<TSession> SessionStore =>
+        _sessionStore ??= Context.GetHttpContext()?.RequestServices?.GetRequiredService<IG9SessionStore<TSession>>()
+                          ?? throw new InvalidOperationException(
+                              $"No IG9SessionStore<{typeof(TSession).Name}> registered. " +
+                              $"Call services.AddG9SignalRSuperNetCoreSessionStore<{typeof(TSession).Name}>() during startup.");
 
-    /// <summary>
-    ///     Gets the unique identifier for the current connection session.
-    /// </summary>
     private string SessionUniqueIdentifier
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -71,12 +62,7 @@ public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideM
     }
 
     /// <summary>
-    ///     Cached session instance for the current connection.
-    /// </summary>
-    private TSession? _cachedSession;
-
-    /// <summary>
-    ///     Gets the session associated with the current connection.
+    ///     Gets the session associated with the current authenticated connection.
     /// </summary>
     protected TSession Session
     {
@@ -84,87 +70,48 @@ public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideM
         get
         {
             if (_cachedSession != null) return _cachedSession;
-            _cachedSession = CurrentHubSessions.GetOrAdd(SessionUniqueIdentifier, _ => new TSession());
-            return _cachedSession;
+            if (SessionStore.TryGet(SessionUniqueIdentifier, out var existing) && existing != null)
+            {
+                _cachedSession = existing;
+                return _cachedSession;
+            }
+
+            var newSession = new TSession();
+            newSession.InitializeActivity();
+            _cachedSession = newSession;
+            return newSession;
         }
     }
 
     #endregion
 
-    #region Methods
+    #region Lifecycle
 
-    /// <summary>
-    ///     Handles client connection to the hub with optimized session management.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    /// <inheritdoc />
     public sealed override async Task OnConnectedAsync()
     {
         var identifier = SessionUniqueIdentifier;
-        if (string.IsNullOrEmpty(identifier)) return;
-
-        var httpContext = Context.GetHttpContext();
-
-        var session = CurrentHubSessions.AddOrUpdate(
-            identifier,
-            _ => CreateNewSession(httpContext),
-            (_, existingSession) =>
-            {
-                existingSession.ConnectionCounts++;
-                existingSession.LastActivityDateTime = DateTime.Now;
-                return existingSession;
-            });
-
-        _cachedSession = session;
+        if (!string.IsNullOrEmpty(identifier))
+        {
+            var httpContext = Context.GetHttpContext();
+            _cachedSession = await SessionStore.GetOrCreateAsync(
+                identifier,
+                () => CreateNewSession(httpContext),
+                Context.ConnectionAborted).ConfigureAwait(false);
+        }
 
         await OnConnectedAsyncNext().ConfigureAwait(false);
         await base.OnConnectedAsync().ConfigureAwait(false);
     }
 
-    /// <summary>
-    ///     Creates a new session instance with initial values.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static TSession CreateNewSession(HttpContext? httpContext)
-    {
-        var newSession = new TSession
-        {
-            ClientIpAddress = httpContext?.Connection.RemoteIpAddress,
-            ConnectionCounts = 1,
-            LastActivityDateTime = DateTime.Now,
-            FirstConnectionDateTime = DateTime.Now
-        };
-        return newSession;
-    }
-
-    /// <summary>
-    ///     Virtual method for additional connection handling in derived classes.
-    /// </summary>
-    [G9AttrDenyAccess]
-    [G9AttrExcludeFromClientGeneration]
-    public virtual Task OnConnectedAsyncNext()
-    {
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    ///     Handles client disconnection with optimized cleanup operations.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    /// <inheritdoc />
     public sealed override async Task OnDisconnectedAsync(Exception? exception)
     {
         var identifier = SessionUniqueIdentifier;
-        if (string.IsNullOrEmpty(identifier)) return;
-
-        if (CurrentHubSessions.TryGetValue(identifier, out var session))
+        if (!string.IsNullOrEmpty(identifier))
         {
-            session.ConnectionCounts--;
-            session.LastActivityDateTime = DateTime.Now;
-
-            if (session.ConnectionCounts <= 0)
-            {
-                CurrentHubSessions.TryRemove(identifier, out _);
-                _cachedSession = null;
-            }
+            await SessionStore.ReleaseAsync(identifier, CancellationToken.None).ConfigureAwait(false);
+            _cachedSession = null;
         }
 
         await OnDisconnectedAsyncNext(exception).ConfigureAwait(false);
@@ -172,39 +119,48 @@ public abstract class G9AHubBaseWithSessionAndJWTAuth<TTargetClass, TClientSideM
     }
 
     /// <summary>
-    ///     Virtual method for additional disconnection handling in derived classes.
+    ///     Override to add custom logic during the connection lifecycle. Runs before the base implementation.
     /// </summary>
     [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
-    public virtual Task OnDisconnectedAsyncNext(Exception? exception)
-    {
-        return Task.CompletedTask;
-    }
+    public virtual Task OnConnectedAsyncNext() => Task.CompletedTask;
 
     /// <summary>
-    ///     Checks if a user is currently connected to the hub.
+    ///     Override to add custom logic during the disconnection lifecycle. Runs before the base implementation.
     /// </summary>
     [G9AttrDenyAccess]
     [G9AttrExcludeFromClientGeneration]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool IsUserConnected(string userId)
-    {
-        return !string.IsNullOrEmpty(userId) && CurrentHubSessions.ContainsKey(userId);
-    }
+    public virtual Task OnDisconnectedAsyncNext(Exception? exception) => Task.CompletedTask;
+
+    #endregion
+
+    #region Helpers
 
     /// <summary>
-    ///     Removes expired sessions based on configurable threshold.
+    ///     Returns true when at least one connection associated with <paramref name="userId"/> is currently active.
     /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void CleanupExpiredSessions(TimeSpan threshold)
-    {
-        var cutoffTime = DateTime.Now.Subtract(threshold);
-        var expiredUsers = CurrentHubSessions
-            .Where(kvp => kvp.Value.LastActivityDateTime < cutoffTime)
-            .Select(kvp => kvp.Key)
-            .ToList();
+    [G9AttrDenyAccess]
+    [G9AttrExcludeFromClientGeneration]
+    public bool IsUserConnected(string userId) => SessionStore.IsConnected(userId);
 
-        foreach (var userId in expiredUsers) CurrentHubSessions.TryRemove(userId, out _);
+    /// <summary>
+    ///     Removes sessions whose last-activity timestamp is older than <paramref name="threshold"/>.
+    /// </summary>
+    /// <returns>The number of sessions removed.</returns>
+    [G9AttrDenyAccess]
+    [G9AttrExcludeFromClientGeneration]
+    public int CleanupExpiredSessions(TimeSpan threshold) => SessionStore.CleanupExpiredSessions(threshold);
+
+    private static TSession CreateNewSession(HttpContext? httpContext)
+    {
+        var nowUtc = DateTime.UtcNow;
+        var session = new TSession
+        {
+            ClientIpAddress = httpContext?.Connection.RemoteIpAddress,
+            FirstConnectionDateTime = nowUtc
+        };
+        session.InitializeActivity();
+        return session;
     }
 
     #endregion

@@ -1,4 +1,5 @@
-﻿using G9SignalRSuperNetCore.Server.Classes.Attributes;
+﻿using System.Diagnostics.CodeAnalysis;
+using G9SignalRSuperNetCore.Server.Classes.Attributes;
 using G9SignalRSuperNetCore.Server.Classes.Helper;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Connections;
@@ -26,11 +27,17 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 ///     for clients to connect and interact with the Hub.
 /// </remarks>
 [Authorize]
-public abstract class G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
+public abstract class G9AHubBaseWithJWTAuth<TTargetClass, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TClientSideMethodsInterface>
     : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
     where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
     where TClientSideMethodsInterface : class
 {
+    /// <summary>
+    ///     Initializes a new <see cref="G9AHubBaseWithJWTAuth{TTargetClass,TClientSideMethodsInterface}"/>.
+    /// </summary>
+    [RequiresDynamicCode("SignalR Hub<T> proxies require dynamic code at runtime.")]
+    protected G9AHubBaseWithJWTAuth() { }
+
     #region Methods
 
     /// <summary>

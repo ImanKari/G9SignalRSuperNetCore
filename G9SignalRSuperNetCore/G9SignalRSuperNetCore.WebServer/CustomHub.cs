@@ -1,44 +1,28 @@
 ﻿using G9SignalRSuperNetCore.Server.Classes.Abstracts;
-using G9SignalRSuperNetCore.Server.Classes.Attributes;
 
 namespace G9SignalRSuperNetCore.WebServer;
 
+/// <summary>
+///     Sample unauthenticated hub.
+/// </summary>
 public class CustomHub : G9AHubBase<CustomHub, CustomClientInterface>
 {
-    public override string RoutePattern()
-    {
-        return "/ApplicationHub";
-    }
+    public override string RoutePattern() => "/ApplicationHub";
 
     /// <summary>
-    /// Information
+    /// Login sample method.
     /// </summary>
-    /// <param name="userName">user Name</param>
+    /// <param name="userName">User name</param>
     /// <param name="password">Password</param>
-    public async Task Login(string userName, string password)
-    {
-        await Clients.Caller.LoginResult(true);
-        
-    }
+    public Task Login(string userName, string password) => Clients.Caller.LoginResult(true);
 
     /// <summary>
-    /// Replay
+    /// Echoes the supplied message back to the caller.
     /// </summary>
-    /// <param name="message">Okay</param>
-    public async Task Replay(string message)
+    /// <param name="message">The message to echo.</param>
+    public Task Replay(string message)
     {
         Console.WriteLine(Context.ConnectionId);
-        await Clients.Caller.Replay(message);
-    }
-
-
-    private async Task Method1(string message)
-    {
-        await Task.CompletedTask;
-    }
-
-    protected async Task Method2(string message)
-    {
-        await Task.CompletedTask;
+        return Clients.Caller.Replay(message);
     }
 }

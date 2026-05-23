@@ -1,5 +1,5 @@
-﻿using G9SignalRSuperNetCore.Server.Classes.Attributes;
-using Microsoft.AspNetCore.Authorization;
+﻿using System.Diagnostics.CodeAnalysis;
+using G9SignalRSuperNetCore.Server.Classes.Attributes;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR;
 
@@ -15,7 +15,8 @@ namespace G9SignalRSuperNetCore.Server.Classes.Abstracts;
 /// <typeparam name="TClientSideMethodsInterface">
 ///     An interface that defines the client-side methods which can be called from the server.
 /// </typeparam>
-public abstract class G9AHubBase<TTargetClass, TClientSideMethodsInterface> : Hub<TClientSideMethodsInterface>
+public abstract class G9AHubBase<TTargetClass, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TClientSideMethodsInterface>
+    : Hub<TClientSideMethodsInterface>
     where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
     where TClientSideMethodsInterface : class
 {
@@ -24,6 +25,8 @@ public abstract class G9AHubBase<TTargetClass, TClientSideMethodsInterface> : Hu
     /// <summary>
     ///     Initializes a new instance of the <see cref="G9AHubBase{TTargetClass,TClientSideMethodsInterface}" /> class.
     /// </summary>
+    [RequiresDynamicCode("SignalR Hub<T> proxies require dynamic code at runtime. " +
+                         "This is intrinsic to ASP.NET Core SignalR's strongly-typed client API and applies to consumer hub types.")]
     protected G9AHubBase()
     {
     }
