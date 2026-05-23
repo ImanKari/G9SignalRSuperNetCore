@@ -60,9 +60,10 @@
                 </DockPanel>
             </TabItem>
 
-            <!-- TAB 4: File upload -->
-            <TabItem Header="File upload">
+            <!-- TAB 4: File transfer -->
+            <TabItem Header="File transfer">
                 <StackPanel Orientation="Vertical">
+                    <TextBlock Text="── Upload ──────────────────────────────────────────────" />
                     <DockPanel>
                         <TextBlock Text="File path: " VerticalAlignment="Center" />
                         <Button Name="BrowseButton" Content="[ Browse... ]" DockPanel.Dock="Right" />
@@ -74,12 +75,33 @@
                     </DockPanel>
                     <StackPanel Orientation="Horizontal">
                         <Button Name="UploadButton" Content="[ Upload ]" IsEnabled="False" />
+                        <Button Name="UploadBreakButton" Content="[ Upload then break ]" IsEnabled="False" />
+                        <Button Name="UploadResumeButton" Content="[ Resume upload ]" IsEnabled="False" />
                         <Button Name="CancelUploadButton" Content="[ Cancel ]" IsEnabled="False" />
-                        <Button Name="ClearUploadButton" Content="[ Clear log ]" />
                     </StackPanel>
                     <TextBlock Name="UploadStatus" Text="No upload in flight." />
                     <ProgressBar Name="UploadBar" Minimum="0" Maximum="100" Value="0" />
-                    <TextBlock Text="Upload log:" />
+
+                    <TextBlock Text="── Download ────────────────────────────────────────────" />
+                    <DockPanel>
+                        <TextBlock Text="Server file:  " VerticalAlignment="Center" />
+                        <TextBox Name="DownloadServerFileBox" Text="file_upload_test.zip" />
+                    </DockPanel>
+                    <DockPanel>
+                        <TextBlock Text="Local target: " VerticalAlignment="Center" />
+                        <TextBox Name="DownloadLocalPathBox" Text="" />
+                    </DockPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Name="DownloadButton" Content="[ Download ]" IsEnabled="False" />
+                        <Button Name="DownloadBreakButton" Content="[ Download then break ]" IsEnabled="False" />
+                        <Button Name="DownloadResumeButton" Content="[ Resume download ]" IsEnabled="False" />
+                        <Button Name="CancelDownloadButton" Content="[ Cancel ]" IsEnabled="False" />
+                    </StackPanel>
+                    <TextBlock Name="DownloadStatus" Text="No download in flight." />
+                    <ProgressBar Name="DownloadBar" Minimum="0" Maximum="100" Value="0" />
+
+                    <Button Name="ClearUploadButton" Content="[ Clear log ]" />
+                    <TextBlock Text="Transfer log:" />
                     <ListBox Name="UploadLog" />
                 </StackPanel>
             </TabItem>
@@ -95,6 +117,69 @@
                     </StackPanel>
                     <TextBlock Text="Outcome log (G9_RATE_LIMITED expected after burst):" />
                     <ListBox Name="RateLimitLog" />
+                </StackPanel>
+            </TabItem>
+
+            <!-- TAB 6: Rooms (Bundle 3) -->
+            <TabItem Header="Rooms">
+                <StackPanel Orientation="Vertical">
+                    <DockPanel>
+                        <TextBlock Text="Room: " VerticalAlignment="Center" />
+                        <TextBox Name="RoomNameBox" Text="lobby" />
+                    </DockPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Name="JoinRoomButton" Content="[ Join ]" IsEnabled="False" />
+                        <Button Name="LeaveRoomButton" Content="[ Leave ]" IsEnabled="False" />
+                        <Button Name="ListMembersButton" Content="[ List members ]" IsEnabled="False" />
+                        <Button Name="ListOnlineButton" Content="[ Online users ]" IsEnabled="False" />
+                    </StackPanel>
+                    <DockPanel>
+                        <Button Name="SendToRoomButton" Content="[ Send to room ]" DockPanel.Dock="Right" IsEnabled="False" />
+                        <TextBox Name="RoomMessageBox" Text="hello room" />
+                    </DockPanel>
+                    <Button Name="ClearRoomsButton" Content="[ Clear log ]" />
+                    <TextBlock Text="Rooms / presence log:" />
+                    <ListBox Name="RoomsLog" />
+                </StackPanel>
+            </TabItem>
+
+            <!-- TAB 7: Streaming (Bundle 4) -->
+            <TabItem Header="Streaming">
+                <StackPanel Orientation="Vertical">
+                    <DockPanel>
+                        <TextBlock Text="Tick count: " VerticalAlignment="Center" />
+                        <TextBox Name="TickCountBox" Text="20" />
+                    </DockPanel>
+                    <DockPanel>
+                        <TextBlock Text="Interval ms: " VerticalAlignment="Center" />
+                        <TextBox Name="TickIntervalBox" Text="100" />
+                    </DockPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Name="StartStreamButton" Content="[ Start ticker ]" IsEnabled="False" />
+                        <Button Name="StopStreamButton" Content="[ Stop ]" IsEnabled="False" />
+                        <Button Name="BulkPushButton" Content="[ Push 100 → server ]" IsEnabled="False" />
+                        <Button Name="ClearStreamingButton" Content="[ Clear log ]" />
+                    </StackPanel>
+                    <TextBlock Text="Streaming log:" />
+                    <ListBox Name="StreamingLog" />
+                </StackPanel>
+            </TabItem>
+
+            <!-- TAB 8: Encrypted (Bundle 5) -->
+            <TabItem Header="Encrypted">
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Text="ECDH P-256 + HKDF-SHA-256 + ChaCha20-Poly1305 round-trip echo." />
+                    <DockPanel>
+                        <TextBlock Text="Plaintext: " VerticalAlignment="Center" />
+                        <TextBox Name="EncPlaintextBox" Text="The quick brown fox jumps over the lazy dog." />
+                    </DockPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Name="HandshakeButton" Content="[ Handshake ]" IsEnabled="False" />
+                        <Button Name="EncryptedEchoButton" Content="[ Encrypted echo ]" IsEnabled="False" />
+                        <Button Name="ClearEncryptedButton" Content="[ Clear log ]" />
+                    </StackPanel>
+                    <TextBlock Text="Encrypted log:" />
+                    <ListBox Name="EncryptedLog" />
                 </StackPanel>
             </TabItem>
         </TabControl>
