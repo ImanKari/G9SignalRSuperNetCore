@@ -8,6 +8,8 @@ using G9SignalRSuperNetCore.Server.Classes.Errors;
 using G9SignalRSuperNetCore.Server.Classes.Presence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace G9SignalRSuperNetCore.Server.Classes.Filters;
 
@@ -27,12 +29,36 @@ namespace G9SignalRSuperNetCore.Server.Classes.Filters;
 ///     <see cref="ConcurrentDictionary{TKey, TValue}"/> miss-then-insert (only on the first call
 ///     of that method).</para>
 /// </remarks>
-public sealed class G9CHubFilter : IHubFilter
+public sealed partial class G9CHubFilter : IHubFilter
 {
     private readonly ConcurrentDictionary<MethodInfo, MethodMeta> _methodCache = new();
     private readonly ConcurrentDictionary<string, G9CTokenBucket> _buckets = new(StringComparer.Ordinal);
     private readonly G9CConnectionCounter _userConnections = new();
     private readonly G9CConnectionCounter _ipConnections = new();
+    private readonly ILogger _logger;
+
+    /// <summary>
+    ///     Initializes the filter. The <paramref name="logger"/> is resolved from DI when the
+    ///     filter is registered through <c>AddSignalRSuperNetCoreCore()</c>; it is used to emit a
+    ///     structured warning whenever a policy (rate limit, connection limit, role/claim,
+    ///     connection-required) rejects an invocation, so operators can see <i>why</i> a call was
+    ///     refused instead of only observing the client-side <see cref="HubException"/>. The
+    ///     policy metrics on <see cref="G9CTelemetry"/> are still incremented regardless of the
+    ///     logger.
+    /// </summary>
+    public G9CHubFilter(ILogger<G9CHubFilter> logger)
+    {
+        _logger = logger ?? NullLogger<G9CHubFilter>.Instance;
+    }
+
+    /// <summary>
+    ///     Parameterless fallback used when the filter is constructed outside DI (e.g. in unit
+    ///     tests or a manual <c>new G9CHubFilter()</c>). Policy logging is suppressed in this mode
+    ///     (routed to <see cref="NullLogger"/>); metrics still fire.
+    /// </summary>
+    public G9CHubFilter() : this(NullLogger<G9CHubFilter>.Instance)
+    {
+    }
 
     /// <inheritdoc />
     public async ValueTask<object?> InvokeMethodAsync(
@@ -44,7 +70,11 @@ public sealed class G9CHubFilter : IHubFilter
         // Connection state guard (fast: HubCallerContext exposes the abort token; if the connection
         // is aborted we fail fast with a clear code).
         if (meta.RequireConnection && context.Context.ConnectionAborted.IsCancellationRequested)
+        {
+            LogPolicyRejection(_logger, G9CErrorCodes.ConnectionRequired, context.HubMethodName,
+                context.Context.ConnectionId, context.Context.UserIdentifier, null);
             throw new HubException(G9CErrorCodes.ConnectionRequired);
+        }
 
         // Authorization guards (role / claim).
         var user = context.Context.User;
@@ -53,6 +83,9 @@ public sealed class G9CHubFilter : IHubFilter
             if (user is null || !meta.RequiredRoles.Any(user.IsInRole))
             {
                 G9CTelemetry.AuthorizationRejections.Add(1);
+                LogPolicyRejection(_logger, G9CErrorCodes.RoleRequired, context.HubMethodName,
+                    context.Context.ConnectionId, context.Context.UserIdentifier,
+                    "requires role: " + string.Join(",", meta.RequiredRoles));
                 throw new HubException(G9CErrorCodes.RoleRequired);
             }
         }
@@ -61,11 +94,23 @@ public sealed class G9CHubFilter : IHubFilter
         {
             foreach (var (type, accepted) in meta.RequiredClaims)
             {
-                if (user is null) { G9CTelemetry.AuthorizationRejections.Add(1); throw new HubException(G9CErrorCodes.ClaimRequired); }
+                if (user is null)
+                {
+                    G9CTelemetry.AuthorizationRejections.Add(1);
+                    LogPolicyRejection(_logger, G9CErrorCodes.ClaimRequired, context.HubMethodName,
+                        context.Context.ConnectionId, context.Context.UserIdentifier, "claim: " + type);
+                    throw new HubException(G9CErrorCodes.ClaimRequired);
+                }
                 var ok = accepted.Length == 0
                     ? user.HasClaim(c => c.Type == type)
                     : user.HasClaim(c => c.Type == type && Array.IndexOf(accepted, c.Value) >= 0);
-                if (!ok) { G9CTelemetry.AuthorizationRejections.Add(1); throw new HubException(G9CErrorCodes.ClaimRequired); }
+                if (!ok)
+                {
+                    G9CTelemetry.AuthorizationRejections.Add(1);
+                    LogPolicyRejection(_logger, G9CErrorCodes.ClaimRequired, context.HubMethodName,
+                        context.Context.ConnectionId, context.Context.UserIdentifier, "claim: " + type);
+                    throw new HubException(G9CErrorCodes.ClaimRequired);
+                }
             }
         }
 
@@ -77,6 +122,9 @@ public sealed class G9CHubFilter : IHubFilter
             if (!bucket.TryAcquire())
             {
                 G9CTelemetry.RateLimitedInvocations.Add(1);
+                LogPolicyRejection(_logger, G9CErrorCodes.RateLimited, context.HubMethodName,
+                    context.Context.ConnectionId, context.Context.UserIdentifier,
+                    $"limit {meta.RateLimit.PerSecond}/s burst {meta.RateLimit.Burst}");
                 throw new HubException(G9CErrorCodes.RateLimited);
             }
         }
@@ -123,6 +171,7 @@ public sealed class G9CHubFilter : IHubFilter
                 && !_userConnections.TryIncrement(userId, limit.PerUser))
             {
                 G9CTelemetry.ConnectionLimitRejections.Add(1);
+                LogConnectionRejection(_logger, hubType.Name, "per-user", userId, limit.PerUser, null);
                 throw new HubException(G9CErrorCodes.ConnectionLimit);
             }
 
@@ -131,6 +180,7 @@ public sealed class G9CHubFilter : IHubFilter
             {
                 if (limit.PerUser > 0 && !string.IsNullOrEmpty(userId)) _userConnections.Decrement(userId);
                 G9CTelemetry.ConnectionLimitRejections.Add(1);
+                LogConnectionRejection(_logger, hubType.Name, "per-ip", ip, limit.PerIp, null);
                 throw new HubException(G9CErrorCodes.ConnectionLimit);
             }
         }
@@ -203,4 +253,18 @@ public sealed class G9CHubFilter : IHubFilter
         string[]? RequiredRoles,
         (string Type, string[] Accepted)[]? RequiredClaims,
         string? TelemetryName);
+
+    [LoggerMessage(
+        EventId = 9100,
+        Level = LogLevel.Warning,
+        Message = "G9 policy rejected hub invocation: code={ErrorCode} method={Method} connectionId={ConnectionId} userId={UserId} detail={Detail}")]
+    private static partial void LogPolicyRejection(
+        ILogger logger, string errorCode, string method, string connectionId, string? userId, string? detail);
+
+    [LoggerMessage(
+        EventId = 9101,
+        Level = LogLevel.Warning,
+        Message = "G9 connection-limit rejected connect: hub={Hub} dimension={Dimension} key={Key} limit={Limit}")]
+    private static partial void LogConnectionRejection(
+        ILogger logger, string hub, string dimension, string key, int limit, Exception? exception);
 }

@@ -19,6 +19,7 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ## Table of contents
 
 - [What's new](#whats-new)
+  - [2.5 — Server policy-rejection logging](#25--server-policy-rejection-logging)
   - [2.2 / 2.3 / 2.4 — Groups & presence, streaming & resilience, distributed & secure](#22--23--24--groups--presence-streaming--resilience-distributed--secure)
   - [2.1 — Policy attributes + resumable file upload](#21--policy-attributes--resumable-file-upload)
   - [2.0 — Foundation hardening (Sept 2026)](#20--foundation-hardening-sept-2026)
@@ -59,6 +60,14 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ---
 
 ## What's new
+
+### 2.5 — Server policy-rejection logging
+
+Additive, zero-config observability for the hub policy filter.
+
+- `G9CHubFilter` now emits a structured `Warning`-level log entry on **every** policy rejection, so operators can see *why* a hub call or connect was refused instead of only observing the client-side `HubException`. Previously rejections incremented a metric and threw, but produced no server log — a visibility gap for diagnostic / support scenarios.
+- The filter resolves an `ILogger<G9CHubFilter>` from DI (wired automatically by `AddSignalRSuperNetCoreCore()`); a parameterless fallback routes to `NullLogger` so `new G9CHubFilter()` and `AddFilter<G9CHubFilter>()` both keep working. The `G9CTelemetry` metrics are unchanged.
+- Event ids: `9100` (per-invocation rejection — rate limit / role / claim / connection-required, with `ErrorCode`, `Method`, `ConnectionId`, `UserId`, `Detail`) and `9101` (per-connect connection-limit rejection — `Hub`, `Dimension`, `Key`, `Limit`). Raise the minimum level for the `G9SignalRSuperNetCore.Server.Classes.Filters.G9CHubFilter` category to silence them. See [Policy-rejection logging](#policy-rejection-logging).
 
 ### 2.2 / 2.3 / 2.4 — Groups & presence, streaming & resilience, distributed & secure
 
@@ -1148,6 +1157,15 @@ Built-in counters:
 - `g9.signalr.connection_limit_rejections` — connections rejected by `[G9AttrConnectionLimit]`.
 - `g9.signalr.authorization_rejections` — calls rejected by `[G9AttrRequireRole]` / `[G9AttrRequireClaim]`.
 
+### Policy-rejection logging
+
+In addition to the metrics above, `G9CHubFilter` emits a structured `Warning`-level log entry every time a policy refuses an invocation, so an operator reading the server log can see *why* a call or connect was rejected (not just that the client received a `HubException`). The filter resolves an `ILogger<G9CHubFilter>` from DI; when constructed outside DI (`new G9CHubFilter()`), logging routes to `NullLogger` and only the metrics fire. Two event ids:
+
+- `9100` — per-invocation rejection (rate limit, role, claim, connection-required). Fields: `ErrorCode`, `Method`, `ConnectionId`, `UserId`, `Detail`.
+- `9101` — per-connect rejection (connection limit). Fields: `Hub`, `Dimension` (`per-user`/`per-ip`), `Key`, `Limit`.
+
+Filter these out by raising the minimum level for the `G9SignalRSuperNetCore.Server.Classes.Filters.G9CHubFilter` category if the warnings are noisy in your environment.
+
 Stable error codes (`G9SignalRSuperNetCore.Server.Classes.Errors.G9CErrorCodes`):
 
 ```
@@ -1299,6 +1317,15 @@ G9SignalRSuperNetCore/
 
 ## Migration guide
 
+### 2.4 → 2.5
+
+2.5 is **additive and zero-config**. Existing code keeps working unchanged. `G9CHubFilter`
+gains a constructor that takes `ILogger<G9CHubFilter>`; DI supplies it automatically through
+`AddSignalRSuperNetCoreCore()`, and a parameterless fallback (routing to `NullLogger`) keeps
+`new G9CHubFilter()` working in tests. If you want the new policy-rejection warnings silenced,
+raise the minimum level for the `G9SignalRSuperNetCore.Server.Classes.Filters.G9CHubFilter`
+log category.
+
 ### 2.0 → 2.1
 
 2.1 is **additive**. Existing 2.0 code keeps working without changes. To opt into the new features:
@@ -1386,6 +1413,8 @@ The 2.x line is shipped as a sequence of focused milestones.
   - `IG9DistributedBackplane` — pluggable cross-node coordination (default no-op for single-process; Redis/NATS implementations belong in optional packages).
   - Resumable downloads with SHA-256 verification and idempotent fast path.
   - Still planned for a future minor: `G9SignalRSuperNetCore.Server.Redis` package, MessagePack hub-protocol opt-in package, BenchmarkDotNet suite.
+- **2.5 — Server policy-rejection logging (shipped).**
+  - `G9CHubFilter` emits structured `Warning` logs (event ids 9100 / 9101) on every policy rejection so operators can see *why* a call/connect was refused; DI-injected `ILogger<G9CHubFilter>` with a `NullLogger` fallback. Metrics unchanged.
 
 The order can shift in response to consumer feedback; track progress in the issues board.
 
