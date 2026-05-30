@@ -19,6 +19,7 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ## Table of contents
 
 - [What's new](#whats-new)
+  - [2.5.1 — Hub-filter single-constructor fix](#251--hub-filter-single-constructor-fix)
   - [2.5 — Server policy-rejection logging](#25--server-policy-rejection-logging)
   - [2.2 / 2.3 / 2.4 — Groups & presence, streaming & resilience, distributed & secure](#22--23--24--groups--presence-streaming--resilience-distributed--secure)
   - [2.1 — Policy attributes + resumable file upload](#21--policy-attributes--resumable-file-upload)
@@ -60,6 +61,23 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ---
 
 ## What's new
+
+### 2.5.1 — Hub-filter single-constructor fix
+
+Bug fix for 2.5.0.
+
+- **Fixed:** registering the hub through `AddSignalRSuperNetCoreServerHub<…>()` (or any
+  `HubOptions.AddFilter<G9CHubFilter>()`) threw at startup:
+  *"Multiple constructors accepting all given argument types have been found in type
+  `G9CHubFilter`. There should only be one applicable constructor."* SignalR builds hub filters
+  through `ActivatorUtilities.CreateFactory`, which rejects a filter type that exposes more than
+  one DI-satisfiable constructor — and 2.5.0 added a second (parameterless) constructor alongside
+  the `ILogger`-taking one.
+- **Resolution:** `G9CHubFilter` now has exactly **one** constructor with an *optional* logger
+  argument — `G9CHubFilter(ILogger<G9CHubFilter>? logger = null)`. DI resolution, the singleton
+  registration, `AddFilter<G9CHubFilter>()`, and a manual `new G9CHubFilter()` (unit tests) all
+  keep working; the parameterless path still routes logging to `NullLogger`. No behaviour change
+  to metrics or the 2.5.0 policy-rejection logging.
 
 ### 2.5 — Server policy-rejection logging
 

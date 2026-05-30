@@ -38,26 +38,29 @@ public sealed partial class G9CHubFilter : IHubFilter
     private readonly ILogger _logger;
 
     /// <summary>
-    ///     Initializes the filter. The <paramref name="logger"/> is resolved from DI when the
-    ///     filter is registered through <c>AddSignalRSuperNetCoreCore()</c>; it is used to emit a
-    ///     structured warning whenever a policy (rate limit, connection limit, role/claim,
-    ///     connection-required) rejects an invocation, so operators can see <i>why</i> a call was
-    ///     refused instead of only observing the client-side <see cref="HubException"/>. The
-    ///     policy metrics on <see cref="G9CTelemetry"/> are still incremented regardless of the
-    ///     logger.
+    ///     Initializes the filter.
+    ///     <para>
+    ///         The optional <paramref name="logger"/> is resolved from DI when the filter is
+    ///         registered through <c>AddSignalRSuperNetCoreCore()</c> (logging is always present in
+    ///         an ASP.NET Core host); it is used to emit a structured warning whenever a policy
+    ///         (rate limit, connection limit, role/claim, connection-required) rejects an
+    ///         invocation, so operators can see <i>why</i> a call was refused instead of only
+    ///         observing the client-side <see cref="HubException"/>. The policy metrics on
+    ///         <see cref="G9CTelemetry"/> are still incremented regardless of the logger.
+    ///     </para>
+    ///     <para>
+    ///         There is exactly ONE constructor on purpose. SignalR registers hub filters through
+    ///         <c>ActivatorUtilities.CreateFactory</c> (see <c>HubOptions.AddFilter&lt;T&gt;()</c>),
+    ///         which throws <c>InvalidOperationException("Multiple constructors accepting all given
+    ///         argument types…")</c> when a filter type exposes more than one DI-satisfiable
+    ///         constructor. A single constructor with an optional argument keeps DI resolution,
+    ///         <c>AddFilter&lt;G9CHubFilter&gt;()</c>, and a manual <c>new G9CHubFilter()</c> (unit
+    ///         tests) all working.
+    ///     </para>
     /// </summary>
-    public G9CHubFilter(ILogger<G9CHubFilter> logger)
+    public G9CHubFilter(ILogger<G9CHubFilter>? logger = null)
     {
         _logger = logger ?? NullLogger<G9CHubFilter>.Instance;
-    }
-
-    /// <summary>
-    ///     Parameterless fallback used when the filter is constructed outside DI (e.g. in unit
-    ///     tests or a manual <c>new G9CHubFilter()</c>). Policy logging is suppressed in this mode
-    ///     (routed to <see cref="NullLogger"/>); metrics still fire.
-    /// </summary>
-    public G9CHubFilter() : this(NullLogger<G9CHubFilter>.Instance)
-    {
     }
 
     /// <inheritdoc />
