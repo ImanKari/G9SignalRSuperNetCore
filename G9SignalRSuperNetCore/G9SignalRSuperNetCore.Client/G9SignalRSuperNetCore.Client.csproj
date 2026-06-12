@@ -37,15 +37,8 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<None Update="G9-Icon.png">
-			<Pack>True</Pack>
-			<PackagePath>\</PackagePath>
-		</None>
-		<None Update="LICENSE.md">
-			<CopyToOutputDirectory>Never</CopyToOutputDirectory>
-			<Pack>True</Pack>
-			<PackagePath>\</PackagePath>
-		</None>
+		<None Include="G9-Icon.png" Pack="true" PackagePath="" />
+		<None Include="LICENSE.md" Pack="true" PackagePath="" CopyToOutputDirectory="Never" />
 	</ItemGroup>
 
 	<ItemGroup>

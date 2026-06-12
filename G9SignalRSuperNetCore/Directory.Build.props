@@ -11,7 +11,7 @@
   -->
 
   <PropertyGroup>
-    <G9PackageVersion>2.5.2</G9PackageVersion>
+    <G9PackageVersion>2.5.3</G9PackageVersion>
 
     <!-- Inherited by every project under this folder. -->
     <Version>$(G9PackageVersion)</Version>
