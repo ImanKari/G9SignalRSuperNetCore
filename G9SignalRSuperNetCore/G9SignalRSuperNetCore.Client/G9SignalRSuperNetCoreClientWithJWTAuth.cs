@@ -44,8 +44,8 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
         Action<HttpConnectionOptions>? configureHttpConnection = null,
         Action<HttpConnectionOptions>? configureHttpConnectionForAuthServer = null)
     {
-        ArgumentException.ThrowIfNullOrEmpty(serverUrl);
-        ArgumentException.ThrowIfNullOrEmpty(serverAuthUrl);
+        if (string.IsNullOrEmpty(serverUrl)) throw new ArgumentException("Value cannot be null or empty.", nameof(serverUrl));
+        if (string.IsNullOrEmpty(serverAuthUrl)) throw new ArgumentException("Value cannot be null or empty.", nameof(serverAuthUrl));
 
         _serverUrl = serverUrl;
         _jwToken = jwToken;
@@ -70,7 +70,7 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
     /// </summary>
     public async Task<G9DtAuthorizeResult> AuthorizeAsync(object authorizeData, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(authorizeData);
+        if (authorizeData is null) throw new ArgumentNullException(nameof(authorizeData));
 
         _tcsAuthorizeResult = new TaskCompletionSource<G9DtAuthorizeResult>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -129,7 +129,7 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
     /// </summary>
     public Task ConnectAsync(string jwToken, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrEmpty(jwToken);
+        if (string.IsNullOrEmpty(jwToken)) throw new ArgumentException("Value cannot be null or empty.", nameof(jwToken));
 
         PrepareConnection(_serverUrl, _customConfigureBuilder, configHttp =>
         {

@@ -1,14 +1,20 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>net10.0</TargetFramework>
+		<TargetFrameworks>net10.0;netstandard2.1</TargetFrameworks>
+		<LangVersion>latest</LangVersion>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
+	</PropertyGroup>
 
+	<!-- AOT/trim analyzers only make sense on the modern TFM. -->
+	<PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
 		<IsAotCompatible>true</IsAotCompatible>
 		<EnableTrimAnalyzer>true</EnableTrimAnalyzer>
 		<IsTrimmable>true</IsTrimmable>
+	</PropertyGroup>
 
+	<PropertyGroup>
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageIcon>G9-Icon.png</PackageIcon>
 		<PackageLicenseFile>LICENSE.md</PackageLicenseFile>
@@ -46,9 +52,22 @@
 		<None Include="..\..\README.md" Pack="true" PackagePath="" />
 	</ItemGroup>
 
-	<ItemGroup>
+	<!-- net10: full feature set (resilience needs net8+). -->
+	<ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
 		<PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.8" />
 		<PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="9.10.0" />
+	</ItemGroup>
+
+	<!-- netstandard2.1: Unity 6-compatible surface. SignalR.Client 8.x ships a netstandard2.0 asset.
+	     Http.Resilience (net8+) and the file-transfer client are excluded on this TFM (see Compile Remove below). -->
+	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
+		<PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.11" />
+	</ItemGroup>
+
+	<!-- Files that depend on net8+ APIs are not compiled into the netstandard2.1 (Unity) build. -->
+	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
+		<Compile Remove="G9CHttpResilience.cs" />
+		<Compile Remove="FileUpload\**\*.cs" />
 	</ItemGroup>
 
 	<Target Name="CopyPackage" AfterTargets="Pack">

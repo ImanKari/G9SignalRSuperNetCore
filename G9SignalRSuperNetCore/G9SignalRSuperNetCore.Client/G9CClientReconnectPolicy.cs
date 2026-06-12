@@ -70,7 +70,7 @@ public sealed class G9CClientReconnectPolicy : IRetryPolicy
     /// <param name="next">Returns the next retry delay or null to give up.</param>
     public static G9CClientReconnectPolicy FromDelegate(Func<RetryContext, TimeSpan?> next)
     {
-        ArgumentNullException.ThrowIfNull(next);
+        if (next is null) throw new ArgumentNullException(nameof(next));
         return new G9CClientReconnectPolicy(next);
     }
 

@@ -60,7 +60,7 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
         Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,
         Action<HttpConnectionOptions>? configureHttpConnection = null)
     {
-        ArgumentException.ThrowIfNullOrEmpty(serverUrl);
+        if (string.IsNullOrEmpty(serverUrl)) throw new ArgumentException("Value cannot be null or empty.", nameof(serverUrl));
         PrepareConnection(serverUrl, customConfigureBuilder, configureHttpConnection);
     }
 
@@ -80,7 +80,7 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
         Func<IHubConnectionBuilder, IHubConnectionBuilder>? customConfigureBuilder = null,
         Action<HttpConnectionOptions>? configureHttpConnection = null)
     {
-        ArgumentException.ThrowIfNullOrEmpty(serverUrl);
+        if (string.IsNullOrEmpty(serverUrl)) throw new ArgumentException("Value cannot be null or empty.", nameof(serverUrl));
 
         IHubConnectionBuilder builder = new HubConnectionBuilder()
             .WithUrl(serverUrl, options => configureHttpConnection?.Invoke(options))
@@ -159,6 +159,6 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
     public ValueTask DisposeAsync()
     {
         GC.SuppressFinalize(this);
-        return Connection?.DisposeAsync() ?? ValueTask.CompletedTask;
+        return Connection?.DisposeAsync() ?? default;
     }
 }
