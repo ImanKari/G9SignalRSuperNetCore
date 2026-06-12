@@ -19,6 +19,7 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ## Table of contents
 
 - [What's new](#whats-new)
+  - [2.5.3 — Client multi-targets netstandard2.1 (Unity)](#253--client-multi-targets-netstandard21-unity)
   - [2.5.1 — Hub-filter single-constructor fix](#251--hub-filter-single-constructor-fix)
   - [2.5 — Server policy-rejection logging](#25--server-policy-rejection-logging)
   - [2.2 / 2.3 / 2.4 — Groups & presence, streaming & resilience, distributed & secure](#22--23--24--groups--presence-streaming--resilience-distributed--secure)
@@ -61,6 +62,20 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ---
 
 ## What's new
+
+### 2.5.3 — Client multi-targets netstandard2.1 (Unity)
+
+Makes `G9SignalRSuperNetCore.Client` usable inside game engines and other runtimes that only expose the **.NET Standard 2.1** API surface (notably **Unity 6**, whose scripting runtime cannot load net10 assemblies).
+
+- **`G9SignalRSuperNetCore.Client` now multi-targets `net10.0;netstandard2.1`.** The net10 build is unchanged (full feature set). The netstandard2.1 build is the engine/Unity-friendly surface.
+- **Per-TFM dependencies:** net10 keeps `Microsoft.AspNetCore.SignalR.Client` 10.x + `Microsoft.Extensions.Http.Resilience`; netstandard2.1 uses `Microsoft.AspNetCore.SignalR.Client` 8.x (ships a netstandard2.0 asset) and omits `Http.Resilience` (net8+ only).
+- **netstandard2.1 build includes:** the core typed client base (`G9SignalRSuperNetCoreClient`), the JWT client base, `G9CClientReconnectPolicy`, `G9DtConnectionState`, `G9DtAuthorizeResult` — enough to connect, invoke, listen, auto-reconnect, and JWT-authenticate.
+- **netstandard2.1 build omits (net10 only):** `G9CHttpResilience` (Polly negotiate hardening) and the resumable file upload/download client.
+- **Portable rewrites:** net7+ throw-helpers (`ArgumentException.ThrowIfNullOrEmpty`, `ArgumentNullException.ThrowIfNull`) replaced with classic guards; `ValueTask.CompletedTask` → `default`; added an `IsExternalInit` polyfill (under `#if !NET5_0_OR_GREATER`) so `init`/record types compile on netstandard2.1. Behaviour on net10 is unchanged.
+
+**Unity usage:** Unity does not restore NuGet directly and does not run the Roslyn source generator. Import the netstandard2.1 `G9SignalRSuperNetCore.Client.dll` and its transitive dependency closure into `Assets/Plugins` (e.g. via NuGetForUnity), and either hand-write the typed proxy/listeners against your shared hub interfaces or pre-generate them in a netstandard2.1 project and import the DLL. Add a `link.xml` to protect SignalR/G9 types from IL2CPP stripping.
+
+> Note for maintainers: packaged `LICENSE.md` / icon must use `<None Include="..." Pack="true" PackagePath="" />` (the `<None Update=...>` form does not pack under multi-target → NU5030/NU5046).
 
 ### 2.5.1 — Hub-filter single-constructor fix
 
@@ -203,7 +218,7 @@ Plain ASP.NET Core SignalR is excellent, but most teams end up writing the same 
 
 The source generator ships **inside the Server package** under `analyzers/dotnet/cs`. Consumers don't need a separate code-gen package; just reference `G9SignalRSuperNetCore.Server` (server) and `G9SignalRSuperNetCore.Client` (client) and the typed client lights up automatically.
 
-All packages target **.NET 10.0** and are AOT-compatible and trim-safe.
+All packages target **.NET 10.0** and are AOT-compatible and trim-safe. **`G9SignalRSuperNetCore.Client` additionally targets `netstandard2.1`** for Unity 6 / engine runtimes (see [2.5.3](#253--client-multi-targets-netstandard21-unity)).
 
 ---
 
