@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!--
+	  End-to-end tests: a real Kestrel server on loopback, the library's hub base and services, the source-generated
+	  typed client, and both hub protocols. Run with `dotnet test G9SignalRSuperNetCore/G9SignalRSuperNetCore.sln -c Release`.
+	-->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<IsPackable>false</IsPackable>
+		<IsTestProject>true</IsTestProject>
+		<!-- Test hubs derive from Hub<T>, which requires dynamic code; tests never publish AOT. -->
+		<NoWarn>$(NoWarn);IL3050;IL2026</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
+		<PackageReference Include="xunit" Version="2.9.3" />
+		<PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="PolyType" Version="1.4.1" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\G9SignalRSuperNetCore.Server\G9SignalRSuperNetCore.Server.csproj" />
+		<ProjectReference Include="..\G9SignalRSuperNetCore.Client\G9SignalRSuperNetCore.Client.csproj" />
+		<ProjectReference Include="..\G9SignalRSuperNetCore.Server.MessagePack\G9SignalRSuperNetCore.Server.MessagePack.csproj" />
+		<ProjectReference Include="..\G9SignalRSuperNetCore.Client.MessagePack\G9SignalRSuperNetCore.Client.MessagePack.csproj" />
+		<!-- The typed client for TestHub is generated in this project, exactly as an app gets it. -->
+		<ProjectReference Include="..\G9SignalRSuperNetCore.SourceGenerator\G9SignalRSuperNetCore.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Using Include="Xunit" />
+		<Using Include="Xunit.Abstractions" />
+	</ItemGroup>
+
+</Project>

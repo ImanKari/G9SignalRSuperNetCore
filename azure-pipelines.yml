@@ -10,12 +10,15 @@ parameters:
     default: 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.sln'
   - name: testProjects
     type: string
-    default: 'null' # Leave empty if no test projects are defined
+    default: 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Tests/G9SignalRSuperNetCore.Tests.csproj' # 'null' skips the test step
   - name: nugetPackages
     type: object
     default:
       - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Client/bin/Release/*.nupkg'
       - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Server/bin/Release/*.nupkg'
+      # Opt-in MessagePack hub protocol (2.6+). Listed after the core packages so a problem publishing them cannot block those.
+      - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Client.MessagePack/bin/Release/*.nupkg'
+      - 'G9SignalRSuperNetCore/G9SignalRSuperNetCore.Server.MessagePack/bin/Release/*.nupkg'
   - name: repositoryName
     type: string
     default: 'G9SignalRSuperNetCore' # Default to the same as the project name
@@ -151,27 +154,15 @@ steps:
     platform: '$(buildPlatform)'
     configuration: '$(buildConfiguration)'
 
-# Set runtime variable for tests
-- task: Bash@3
-  displayName: "Evaluate Test Projects"
-  inputs:
-    targetType: 'inline'
-    script: |
-      if [ "${{ parameters.testProjects }}" != "null" ]; then
-        echo "##vso[task.setvariable variable=runTests]true"
-      else
-        echo "##vso[task.setvariable variable=runTests]false"
-      fi
-
-# Run tests if applicable
-- ${{ if eq(variables.runTests, 'true') }}:
-  - task: VSTest@2
-    displayName: Run Unit Tests
+# Run the tests before anything is published. The switch is the template PARAMETER: a template expression is evaluated
+# when the pipeline is compiled, so the runtime variable the previous version set here was never seen and the step never ran.
+- ${{ if ne(parameters.testProjects, 'null') }}:
+  - task: DotNetCoreCLI@2
+    displayName: Run Tests
     inputs:
-      testSelector: testAssemblies
-      testAssemblyVer2: '${{ parameters.testProjects }}'
-      platform: '$(buildPlatform)'
-      configuration: '$(buildConfiguration)'
+      command: test
+      projects: '${{ parameters.testProjects }}'
+      arguments: '--configuration $(buildConfiguration)'
 
 # Validate and publish NuGet packages
 - ${{ each packagePath in parameters.nugetPackages }}:

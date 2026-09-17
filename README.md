@@ -19,6 +19,7 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ## Table of contents
 
 - [What's new](#whats-new)
+  - [2.6 — MessagePack hub protocol (opt-in), generated-client and registration fixes](#26--messagepack-hub-protocol-opt-in-generated-client-and-registration-fixes)
   - [2.5.3 — Client multi-targets netstandard2.1 (Unity)](#253--client-multi-targets-netstandard21-unity)
   - [2.5.1 — Hub-filter single-constructor fix](#251--hub-filter-single-constructor-fix)
   - [2.5 — Server policy-rejection logging](#25--server-policy-rejection-logging)
@@ -45,6 +46,7 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 - [Groups and presence](#groups-and-presence)
 - [Server streams with backpressure](#server-streams-with-backpressure)
 - [Resilient client reconnect](#resilient-client-reconnect)
+- [MessagePack hub protocol (opt-in)](#messagepack-hub-protocol-opt-in)
 - [App-level encryption (no TLS required)](#app-level-encryption-no-tls-required)
 - [Distributed backplane (interface)](#distributed-backplane-interface)
 - [Telemetry, metrics, and stable error codes](#telemetry-metrics-and-stable-error-codes)
@@ -62,6 +64,28 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ---
 
 ## What's new
+
+### 2.6 — MessagePack hub protocol (opt-in), generated-client and registration fixes
+
+**Binary hub protocol, NativeAOT-safe.** Two new opt-in packages, `G9SignalRSuperNetCore.Server.MessagePack` and `G9SignalRSuperNetCore.Client.MessagePack`, add SignalR's MessagePack protocol through [Nerdbank.MessagePack](https://aarnott.github.io/Nerdbank.MessagePack/docs/signalr.html). Its serializers come from [PolyType](https://github.com/eiriktsarpalis/PolyType) type shapes generated at compile time, so it stays AOT- and trim-safe. Under Native AOT, Microsoft's SignalR supports [only the JSON protocol](https://learn.microsoft.com/en-us/aspnet/core/release-notes/aspnetcore-9.0#signalr-supports-trimming-and-native-aot).
+
+- The server offers MessagePack **next to** JSON, and each connection picks its protocol in the handshake. Clients can therefore move one at a time.
+- The JSON protocol base64-encodes every `byte[]` (+33%). MessagePack sends raw bytes. Measured:
+  - a 2 MB file upload put 2.80 MB on the wire over JSON and 2.10 MB over MessagePack;
+  - G9SyncData's 500,000-row initial sync downloads 23.1 MB instead of 30.7 MB, with half the client allocations.
+- The library adds shapes for its own hub types behind yours (file-transfer results and acknowledgements, presence events, binary chunks). You only declare shapes for your own types. See [MessagePack hub protocol (opt-in)](#messagepack-hub-protocol-opt-in).
+
+**Fixed — generated clients now use the client-library file-transfer types.** A shared hub assembly references the server package, so hub signatures name `G9SignalRSuperNetCore.Server.Classes.FileUpload.*` DTOs. Up to 2.5.3 the generated client kept those server types.
+
+SignalR binds a callback's arguments using the parameter types of the *first* handler registered for it. The generated `UploadProgress(server DTO)` listener therefore broke `G9CFileUploader`'s own acknowledgement handler, which uses the client DTO: its cast failed and no server-acknowledged bytes were ever reported. Over MessagePack no acknowledgement arrived at all.
+
+The generator now emits the identical `G9SignalRSuperNetCore.Client.FileUpload.*` twins (`G9DtBeginUploadResult`, `G9DtUploadResult`, `G9DtBeginDownloadResult`, `G9DtUploadProgress`, `G9EUploadStatus`). The wire format is unchanged. **Source change:** an override of a generated listener that takes one of these types must now use the client type (see [2.5 → 2.6](#25--26)).
+
+**Fixed — route constants in same-project hubs.** For a hub declared in the consuming project, the generator only read a string *literal* from `RoutePattern()`. `=> Route` (the convention the samples use) silently produced `"/" + ClassName`, so the typed client connected to the wrong path and received 404. The generator now resolves `=> Route` / `=> MyHub.Route` constants, and falls back to a `const string Route` before the class name, like it already did for hubs in referenced assemblies.
+
+**Fixed — service registration is idempotent per service collection, not per process.** `AddSignalRSuperNetCoreCore()` and `AddSignalRSuperNetCoreJwt(...)` used process-wide flags. Every service collection after the first (a second host, a test server) silently ran without the hub filter, the user-id provider, the SignalR options or JWT authentication.
+
+**Tests and CI.** A new `G9SignalRSuperNetCore.Tests` project runs a real Kestrel server with the typed client over both protocols. The pipeline now runs it before publishing; its old test step could never run, because a template expression tested a runtime variable.
 
 ### 2.5.3 — Client multi-targets netstandard2.1 (Unity)
 
@@ -215,10 +239,12 @@ Plain ASP.NET Core SignalR is excellent, but most teams end up writing the same 
 |---|---|
 | `G9SignalRSuperNetCore.Server` | Hub bases, JWT pipeline, session abstraction, attributes, hub filter, file-upload service, embedded source generator |
 | `G9SignalRSuperNetCore.Client` | Typed client bases (anonymous + JWT), resumable file uploader, progress DTOs |
+| `G9SignalRSuperNetCore.Server.MessagePack` | Opt-in binary hub protocol for servers, offered next to JSON (2.6+) |
+| `G9SignalRSuperNetCore.Client.MessagePack` | Opt-in binary hub protocol for clients (2.6+) |
 
 The source generator ships **inside the Server package** under `analyzers/dotnet/cs`. Consumers don't need a separate code-gen package; just reference `G9SignalRSuperNetCore.Server` (server) and `G9SignalRSuperNetCore.Client` (client) and the typed client lights up automatically.
 
-All packages target **.NET 10.0** and are AOT-compatible and trim-safe. **`G9SignalRSuperNetCore.Client` additionally targets `netstandard2.1`** for Unity 6 / engine runtimes (see [2.5.3](#253--client-multi-targets-netstandard21-unity)).
+All packages target **.NET 10.0** and are AOT-compatible and trim-safe, the MessagePack packages included. **`G9SignalRSuperNetCore.Client` additionally targets `netstandard2.1`** for Unity 6 / engine runtimes (see [2.5.3](#253--client-multi-targets-netstandard21-unity)).
 
 ---
 
@@ -1109,6 +1135,57 @@ var conn = new HubConnectionBuilder()
 
 Pass `Timeout.InfiniteTimeSpan` for `maxElapsed` to retry forever.
 
+## MessagePack hub protocol (opt-in)
+
+Use it when payloads are large or binary: file transfer, sync pages, encrypted envelopes. The JSON protocol base64-encodes `byte[]` (+33%) and parses text. MessagePack sends bytes as bytes.
+
+| Package | Adds |
+|---|---|
+| `G9SignalRSuperNetCore.Server.MessagePack` | `services.AddG9SignalRSuperNetCoreMessagePack(shapes)` / `signalRBuilder.AddG9MessagePackProtocol(shapes)`. JSON stays available. |
+| `G9SignalRSuperNetCore.Client.MessagePack` | `hubConnectionBuilder.AddG9MessagePackProtocol(shapes)`, passed as a G9 client's `customConfigureBuilder` |
+
+Both use [Nerdbank.MessagePack](https://aarnott.github.io/Nerdbank.MessagePack/docs/signalr.html), whose serializers are built from **type shapes generated at compile time** by [PolyType](https://github.com/eiriktsarpalis/PolyType). There is no reflection or dynamic code, so the protocol is NativeAOT- and trim-safe.
+
+**1. Declare shapes** for every parameter, return and stream-item type of your hub methods and client callbacks. Do this once, in the shared assembly (it needs a `PolyType` package reference):
+
+```csharp
+using PolyType;
+
+[GenerateShapeFor<ChatMessage>]
+[GenerateShapeFor<List<string>>]
+[GenerateShapeFor<string>]
+[GenerateShapeFor<int>]
+public sealed partial class ChatWireShapes;
+```
+
+The library's own hub types need no entry: the packages chain their shapes behind yours. `G9SignalRSuperNetCoreServerMessagePack.CombineShapes` / `G9SignalRSuperNetCoreClientMessagePack.CombineShapes` build that chain, and `LibraryShapes` is what they add. The built-in types are:
+- the file-transfer results and acknowledgements;
+- presence events (server);
+- `byte[]`, `string`, `bool`, `int` and `long`.
+
+**2. Server** — offer the protocol next to JSON:
+
+```csharp
+builder.Services.AddSignalRSuperNetCoreCore();
+builder.Services.AddG9SignalRSuperNetCoreMessagePack(ChatWireShapes.GeneratedTypeShapeProvider);
+```
+
+**3. Client** — opt in per connection:
+
+```csharp
+var client = new ChatHubClient(serverUrl,
+    customConfigureBuilder: b => b.AddG9MessagePackProtocol(ChatWireShapes.GeneratedTypeShapeProvider));
+```
+
+Notes:
+
+- **Missing shape:** a type without a shape fails when the first call using it is serialized, not at connect time. The test project shows how to assert that every type you exchange has a shape.
+- **Server without MessagePack:** a MessagePack client connecting to a server that did not register it fails the handshake with `HubException: … The protocol 'messagepack' is not supported.`
+- **JWT authentication:** keep the auth connection on JSON. `G9GetJwtHub.Authorize` takes an untyped `object`, and `G9DtAuthorizeResult.ExtraData` is an `object`; neither has a type shape. Pass the MessagePack builder as `customConfigureBuilder` only, not `customConfigureBuilderForAuthServer`.
+- **Message size limits:** `HubOptions.MaximumReceiveMessageSize` counts protocol bytes, so the same limit admits ~33% larger binary arguments over MessagePack.
+- **Target framework:** both packages target .NET 10 only. The netstandard2.1 (Unity) client build stays JSON-only.
+- **Wire format:** it follows the [SignalR MessagePack spec](https://github.com/dotnet/aspnetcore/blob/main/src/SignalR/docs/specs/HubProtocol.md#messagepack-msgpack-encoding). DTOs are encoded as maps keyed by property name, so client and server types only need matching member names (the file-transfer twins rely on this).
+
 ## App-level encryption (no TLS required)
 
 For environments where you can't run TLS — internal networks, h2c reverse proxies, on-device IPC — `G9CHandshake` ships an ephemeral-static ECDH P-256 + HKDF-SHA-256 + ChaCha20-Poly1305 pipeline using only `System.Security.Cryptography` types.
@@ -1291,6 +1368,8 @@ dotnet run --project G9SignalRSuperNetCore/G9SignalRSuperNetCore.WebServer -c Re
 dotnet run --project G9SignalRSuperNetCore/G9SignalRSuperNetCore.ConsoleClient -c Release
 ```
 
+Start the client with `--messagepack` (or set `G9_SAMPLE_PROTOCOL=messagepack`) to connect over the binary protocol; the sample server offers both.
+
 The console app uses `Consolonia.UseAutoDetectedConsole()` so it works in Windows Terminal, ConEmu, iTerm2, GNOME Terminal, Alacritty, etc.
 
 ---
@@ -1301,14 +1380,17 @@ The console app uses `Consolonia.UseAutoDetectedConsole()` so it works in Window
 # Restore + Release build the whole solution
 dotnet build G9SignalRSuperNetCore/G9SignalRSuperNetCore.sln -c Release
 
+# Run the tests (real Kestrel server on loopback, typed client, JSON and MessagePack)
+dotnet test G9SignalRSuperNetCore/G9SignalRSuperNetCore.Tests -c Release
+
 # Run the sample web server
 dotnet run --project G9SignalRSuperNetCore/G9SignalRSuperNetCore.WebServer -c Release
 
-# Run the Consolonia console test harness (in another terminal)
+# Run the Consolonia console test harness (in another terminal; add -- --messagepack for the binary protocol)
 dotnet run --project G9SignalRSuperNetCore/G9SignalRSuperNetCore.ConsoleClient -c Release
 ```
 
-The Release build is warning-clean across all six projects. CI runs through `azure-pipelines.yml` and publishes the two NuGet packages on `main`.
+The Release build is warning-clean across all nine projects. CI runs through `azure-pipelines.yml` on `main`. It builds, runs the tests, and only then publishes the four NuGet packages.
 
 ## Project layout
 
@@ -1339,9 +1421,13 @@ G9SignalRSuperNetCore/
 │   ├── G9HubClientGenerator.cs                             # generator entry point
 │   ├── G9Parser.cs                                         # symbol -> HubModel
 │   ├── G9Emitter.cs                                        # HubModel -> C# source
+│   ├── G9ClientTwins.cs                                    # server file-transfer DTOs -> client twins
 │   ├── G9Diagnostics.cs                                    # G9001..G9007 stable IDs
 │   └── AnalyzerReleases.{Shipped,Unshipped}.md             # release-tracking metadata
-├── G9SignalRSuperNetCore.Sample.Shared/                    # Sample hub + client interface
+├── G9SignalRSuperNetCore.Server.MessagePack/               # NuGet: opt-in MessagePack protocol (server) + library shapes
+├── G9SignalRSuperNetCore.Client.MessagePack/               # NuGet: opt-in MessagePack protocol (client) + library shapes
+├── G9SignalRSuperNetCore.Tests/                            # xUnit: Kestrel + typed client, both protocols, registration
+├── G9SignalRSuperNetCore.Sample.Shared/                    # Sample hub + client interface + ChatWireShapes
 ├── G9SignalRSuperNetCore.WebServer/                        # Sample server
 └── G9SignalRSuperNetCore.ConsoleClient/                    # Sample client (Consolonia TUI)
 ```
@@ -1349,6 +1435,24 @@ G9SignalRSuperNetCore/
 ---
 
 ## Migration guide
+
+### 2.5 → 2.6
+
+2.6 is additive apart from one source change in generated clients.
+
+1. **Generated file-transfer types.** If you override a generated listener, or use a generated proxy method, whose signature names one of `G9SignalRSuperNetCore.Server.Classes.FileUpload.{G9DtBeginUploadResult, G9DtUploadResult, G9DtBeginDownloadResult, G9DtUploadProgress, G9EUploadStatus}`, change it to the same name under `G9SignalRSuperNetCore.Client.FileUpload`. The typical case is `UploadProgress`:
+
+   ```csharp
+   // before
+   public override Task UploadProgress(G9SignalRSuperNetCore.Server.Classes.FileUpload.G9DtUploadProgress progress) { … }
+   // after
+   public override Task UploadProgress(G9SignalRSuperNetCore.Client.FileUpload.G9DtUploadProgress progress) { … }
+   ```
+
+   The wire format is unchanged, so 2.5 servers and 2.6 clients interoperate. After the change, `G9CFileUploader` reports server-acknowledged bytes again.
+2. **Route constants.** A hub declared in the same project as its typed client with `RoutePattern() => Route` now connects to `Route`; before, it connected to `/<ClassName>`. If you worked around that by mapping the hub at `/<ClassName>`, map it at `Route` instead.
+3. **Service registration** now happens once per service collection. Nothing to change. Hosts built after the first one in a process now get the hub filter and JWT authentication.
+4. **MessagePack** is opt-in; see [MessagePack hub protocol (opt-in)](#messagepack-hub-protocol-opt-in).
 
 ### 2.4 → 2.5
 
@@ -1445,9 +1549,14 @@ The 2.x line is shipped as a sequence of focused milestones.
   - `[G9AttrEncrypted]` — declarative encrypted-method contract.
   - `IG9DistributedBackplane` — pluggable cross-node coordination (default no-op for single-process; Redis/NATS implementations belong in optional packages).
   - Resumable downloads with SHA-256 verification and idempotent fast path.
-  - Still planned for a future minor: `G9SignalRSuperNetCore.Server.Redis` package, MessagePack hub-protocol opt-in package, BenchmarkDotNet suite.
+  - Still planned for a future minor: `G9SignalRSuperNetCore.Server.Redis` package, BenchmarkDotNet suite.
 - **2.5 — Server policy-rejection logging (shipped).**
   - `G9CHubFilter` emits structured `Warning` logs (event ids 9100 / 9101) on every policy rejection so operators can see *why* a call/connect was refused; DI-injected `ILogger<G9CHubFilter>` with a `NullLogger` fallback. Metrics unchanged.
+
+- **2.6 — MessagePack & fixes (shipped).**
+  - `G9SignalRSuperNetCore.Server.MessagePack` / `.Client.MessagePack` — opt-in, AOT-safe binary hub protocol with the library's own type shapes built in.
+  - Generated clients use the client-library file-transfer twins (server acknowledgements reach `G9CFileUploader` again); same-project hubs resolve `Route` constants.
+  - Registration idempotent per service collection; test project run by CI before publishing.
 
 The order can shift in response to consumer feedback; track progress in the issues board.
 
@@ -1457,7 +1566,7 @@ Issues and pull requests are welcome.
 
 1. Open an issue describing the change before sending a large PR.
 2. Match the existing code style: file-scoped namespaces, XML docs on public members, `G9` prefix on public types, `G9C…` for concrete classes, `G9A…` for abstracts, `G9Dt…` for DTOs, `G9Attr…` for attributes, `G9E…` for enums.
-3. `dotnet build -c Release` must finish with zero warnings — including AOT and trim warnings attributable to G9 code.
+3. `dotnet build -c Release` must finish with zero warnings — including AOT and trim warnings attributable to G9 code — and `dotnet test` must pass.
 4. Update or add a sample under `G9SignalRSuperNetCore.WebServer` / `G9SignalRSuperNetCore.ConsoleClient` when adding new public surface.
 5. New cryptographic code (in 2.4+) must use BCL primitives only and ship with property-based tests.
 

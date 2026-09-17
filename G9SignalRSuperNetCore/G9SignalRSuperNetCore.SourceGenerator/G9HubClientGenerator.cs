@@ -43,9 +43,10 @@ public sealed class G9HubClientGenerator : IIncrementalGenerator
         // The generator only emits the typed client when the consuming project also references
         // G9SignalRSuperNetCore.Client. This keeps server-only projects (e.g. the shared sample
         // library) free of generated client code that would not compile there.
-        var hasClientLibrary = context.CompilationProvider.Select(static (compilation, _) =>
-            compilation.GetTypeByMetadataName(
-                "G9SignalRSuperNetCore.Client.G9SignalRSuperNetCoreClient`3") is not null);
+        // It also rewrites the server library's file-transfer DTOs to their client twins when those exist (G9ClientTwins).
+        var clientLibrary = context.CompilationProvider.Select(static (compilation, _) => (
+            HasClient: compilation.GetTypeByMetadataName("G9SignalRSuperNetCore.Client.G9SignalRSuperNetCoreClient`3") is not null,
+            HasTwins: compilation.GetTypeByMetadataName(G9ClientTwins.ProbeMetadataName) is not null));
 
         // (1) Hubs declared as syntax in the current compilation.
         var inCompilationHubs = context.SyntaxProvider.CreateSyntaxProvider(
@@ -90,18 +91,18 @@ public sealed class G9HubClientGenerator : IIncrementalGenerator
                 return output;
             });
 
-        var combined = combinedHubs.Combine(hasClientLibrary);
+        var combined = combinedHubs.Combine(clientLibrary);
 
         context.RegisterSourceOutput(combined, static (spc, pair) =>
         {
-            var (model, hasClient) = pair;
+            var (model, client) = pair;
             ReportDiagnostics(spc, model);
 
             // Emit the generated client only when the project consumes the client library.
-            if (!hasClient) return;
+            if (!client.HasClient) return;
 
             var fileName = SanitizeFileName(model.FullyQualifiedClassName) + ".g.cs";
-            spc.AddSource(fileName, G9Emitter.Emit(model));
+            spc.AddSource(fileName, G9Emitter.Emit(client.HasTwins ? G9ClientTwins.Apply(model) : model));
         });
     }
 

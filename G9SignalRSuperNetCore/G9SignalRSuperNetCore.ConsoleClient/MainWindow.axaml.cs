@@ -8,6 +8,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using G9SignalRSuperNetCore.Client;
 using G9SignalRSuperNetCore.Client.FileUpload;
+using G9SignalRSuperNetCore.Client.MessagePack;
 using G9SignalRSuperNetCore.Sample.Shared;
 using Microsoft.AspNetCore.SignalR.Client;
 
@@ -108,7 +109,7 @@ public partial class MainWindow : Window
     private async Task ConnectAsync()
     {
         var url = Find<TextBox>("ServerUrlBox")!.Text ?? "https://localhost:7159";
-        Log(ConnectionLines, $"Connecting to {url} ...");
+        Log(ConnectionLines, $"Connecting to {url} ({(Program.UseMessagePack ? "MessagePack" : "JSON")} protocol) ...");
         try
         {
             _client = new TestChatClient(this, url);
@@ -835,7 +836,11 @@ internal sealed class TestChatClient : ChatHubClient
     private readonly MainWindow _owner;
 
     public TestChatClient(MainWindow owner, string serverUrl)
-        : base(serverUrl, configureHttpConnection: G9CHttpResilience.ApplyDefault)
+        : base(serverUrl,
+            customConfigureBuilder: Program.UseMessagePack
+                ? builder => builder.AddG9MessagePackProtocol(ChatWireShapes.GeneratedTypeShapeProvider)
+                : null,
+            configureHttpConnection: G9CHttpResilience.ApplyDefault)
         => _owner = owner;
 
     public override Task ReceiveMessage(string user, string message)
@@ -862,7 +867,8 @@ internal sealed class TestChatClient : ChatHubClient
         return Task.CompletedTask;
     }
 
-    public override Task UploadProgress(G9SignalRSuperNetCore.Server.Classes.FileUpload.G9DtUploadProgress progress)
+    // Since 2.6 the generated client uses the client-library twin of the hub's server-side DTO.
+    public override Task UploadProgress(G9SignalRSuperNetCore.Client.FileUpload.G9DtUploadProgress progress)
     {
         // Server-side ack routed here. Already merged into the IProgress<> sink in the uploader,
         // but we surface it in the upload log for visibility.

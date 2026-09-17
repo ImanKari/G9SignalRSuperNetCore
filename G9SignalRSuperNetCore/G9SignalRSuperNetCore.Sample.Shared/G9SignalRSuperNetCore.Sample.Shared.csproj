@@ -11,6 +11,8 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\G9SignalRSuperNetCore.Server\G9SignalRSuperNetCore.Server.csproj" />
+		<!-- ChatWireShapes: build-time type shapes for the optional MessagePack hub protocol. -->
+		<PackageReference Include="PolyType" Version="1.4.1" />
 	</ItemGroup>
 
 	<!-- Sample.Shared has only the server reference (it's just hubs and DTOs).

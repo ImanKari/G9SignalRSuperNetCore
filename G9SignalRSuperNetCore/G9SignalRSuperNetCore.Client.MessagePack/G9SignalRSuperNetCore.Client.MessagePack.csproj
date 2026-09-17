@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!--
+	  Opt-in binary hub protocol for G9SignalRSuperNetCore clients: the SignalR MessagePack protocol implemented by
+	  Nerdbank.MessagePack, whose serializers come from PolyType type shapes generated at build time — so it is
+	  NativeAOT- and trim-safe, unlike the reflection-based Microsoft.AspNetCore.SignalR.Protocols.MessagePack.
+	  A separate package so that JSON-only apps (and the netstandard2.1 / Unity build of the client) take no new
+	  dependencies.
+	-->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<LangVersion>latest</LangVersion>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+
+		<IsAotCompatible>true</IsAotCompatible>
+		<EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+		<IsTrimmable>true</IsTrimmable>
+
+		<Description>MessagePack hub protocol for G9SignalRSuperNetCore clients (NativeAOT-safe, via Nerdbank.MessagePack and PolyType source-generated shapes), with the shapes of the library's own file-transfer types built in.</Description>
+		<PackageTags>signalr;messagepack;aot;maui;g9</PackageTags>
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<PackageIcon>G9-Icon.png</PackageIcon>
+		<PackageLicenseFile>LICENSE.md</PackageLicenseFile>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<EmbedAllSources>True</EmbedAllSources>
+		<AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
+		<PublishRepositoryUrl>true</PublishRepositoryUrl>
+		<IncludeSymbols>true</IncludeSymbols>
+		<IncludeSource>true</IncludeSource>
+		<Deterministic>true</Deterministic>
+		<EmbedUntrackedSources>true</EmbedUntrackedSources>
+		<ProduceReferenceAssembly>true</ProduceReferenceAssembly>
+		<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="G9-Icon.png" Pack="true" PackagePath="" />
+		<None Include="LICENSE.md" Pack="true" PackagePath="" CopyToOutputDirectory="Never" />
+		<None Include="..\..\README.md" Pack="true" PackagePath="" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Nerdbank.MessagePack.SignalR" Version="1.3.85" />
+		<PackageReference Include="PolyType" Version="1.4.1" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\G9SignalRSuperNetCore.Client\G9SignalRSuperNetCore.Client.csproj" />
+	</ItemGroup>
+
+	<Target Name="CopyPackage" AfterTargets="Pack">
+		<PropertyGroup>
+			<PackageOutputPath>bin\$(Configuration)\</PackageOutputPath>
+		</PropertyGroup>
+
+		<Copy SourceFiles="$(PackageOutputPath)$(PackageId).$([System.Text.RegularExpressions.Regex]::Replace(&quot;$(PackageVersion)&quot;, &quot;^(.+?)(\.0+)$&quot;, &quot;$1&quot;)).nupkg" DestinationFolder="Z:\LocalNugetPackages\" Condition="Exists('Z:\LocalNugetPackages\')" />
+		<Copy SourceFiles="$(PackageOutputPath)$(PackageId).$([System.Text.RegularExpressions.Regex]::Replace(&quot;$(PackageVersion)&quot;, &quot;^(.+?)(\.0+)$&quot;, &quot;$1&quot;)).symbols.nupkg" DestinationFolder="Z:\LocalNugetPackages\" Condition="Exists('Z:\LocalNugetPackages\')" />
+	</Target>
+
+</Project>

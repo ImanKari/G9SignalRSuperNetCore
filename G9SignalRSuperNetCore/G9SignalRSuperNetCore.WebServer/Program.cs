@@ -1,5 +1,6 @@
 using G9SignalRSuperNetCore.Sample.Shared;
 using G9SignalRSuperNetCore.Server;
+using G9SignalRSuperNetCore.Server.MessagePack;
 
 namespace G9SignalRSuperNetCore.WebServer;
 
@@ -33,6 +34,9 @@ public static class Program
 
         // Core SignalR services + deny-by-default policy + custom UserIdProvider
         builder.Services.AddSignalRSuperNetCoreCore();
+
+        // 2.6: offer the binary MessagePack hub protocol next to JSON (start the console client with --messagepack).
+        builder.Services.AddG9SignalRSuperNetCoreMessagePack(ChatWireShapes.GeneratedTypeShapeProvider);
 
         // Resumable file upload service (writes to ./uploads/, partials in ./uploads/.partial/)
         builder.Services.AddG9SignalRSuperNetCoreFileUpload(opt =>

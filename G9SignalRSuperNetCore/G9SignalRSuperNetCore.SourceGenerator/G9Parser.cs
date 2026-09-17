@@ -66,14 +66,21 @@ internal static class G9Parser
             Diagnostics: new EquatableArray<DiagnosticModel>(diagnostics.ToArray()));
     }
 
-    private static string ExtractStringConstantOrFallback(INamedTypeSymbol type, string fieldName, string fallback)
+    private static string ExtractStringConstantOrFallback(INamedTypeSymbol type, string fieldName, string fallback) =>
+        FindStringConstant(type, fieldName) ?? fallback;
+
+    /// <summary>A <c>const string</c> named <paramref name="fieldName" /> on <paramref name="type" /> or a base type.</summary>
+    private static string? FindStringConstant(INamedTypeSymbol type, string fieldName)
     {
-        foreach (var member in type.GetMembers(fieldName))
+        for (var current = type; current is not null; current = current.BaseType)
         {
-            if (member is IFieldSymbol field && field.IsConst && field.HasConstantValue && field.ConstantValue is string s)
-                return s;
+            foreach (var member in current.GetMembers(fieldName))
+            {
+                if (member is IFieldSymbol field && field.IsConst && field.HasConstantValue && field.ConstantValue is string s)
+                    return s;
+            }
         }
-        return fallback;
+        return null;
     }
 
     public static HubModel? Parse(ClassDeclarationSyntax hubSyntax, INamedTypeSymbol hubSymbol, CancellationToken ct)
@@ -87,9 +94,13 @@ internal static class G9Parser
         var listenerInterface = ExtractListenerInterface(hubSymbol);
         if (listenerInterface is null) return null;
 
-        var routePattern = ExtractStringFromOverride(hubSyntax, "RoutePattern", "/" + hubSymbol.Name, diagnostics);
+        // The override usually returns a literal or the hub's own constant (`=> Route`); an expression the generator cannot
+        // evaluate falls back to the `Route` / `AuthRoute` constant convention the referenced-assembly path uses.
+        var routePattern = ExtractStringFromOverride(hubSyntax, hubSymbol, "RoutePattern",
+            ExtractStringConstantOrFallback(hubSymbol, "Route", "/" + hubSymbol.Name), diagnostics);
         var authRoutePattern = kind is HubKind.JwtAuth or HubKind.SessionAndJwtAuth
-            ? ExtractStringFromOverride(hubSyntax, "AuthAndGetJWTRoutePattern", "/AuthHub", diagnostics)
+            ? ExtractStringFromOverride(hubSyntax, hubSymbol, "AuthAndGetJWTRoutePattern",
+                ExtractStringConstantOrFallback(hubSymbol, "AuthRoute", "/AuthHub"), diagnostics)
             : string.Empty;
 
         var serverMethods = ParseServerMethods(hubSymbol, ct, diagnostics);
@@ -293,6 +304,7 @@ internal static class G9Parser
 
     private static string ExtractStringFromOverride(
         ClassDeclarationSyntax cls,
+        INamedTypeSymbol hubSymbol,
         string methodName,
         string fallback,
         List<DiagnosticModel> diagnostics)
@@ -310,20 +322,21 @@ internal static class G9Parser
             return fallback;
         }
 
-        if (method.Body is not null)
-        {
-            var ret = method.Body.Statements.OfType<ReturnStatementSyntax>().FirstOrDefault();
-            if (ret?.Expression is LiteralExpressionSyntax lit &&
-                lit.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.StringLiteralExpression))
-                return lit.Token.ValueText;
-        }
-        else if (method.ExpressionBody?.Expression is LiteralExpressionSyntax expLit &&
-                 expLit.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.StringLiteralExpression))
-        {
-            return expLit.Token.ValueText;
-        }
+        var expression = method.Body is not null
+            ? method.Body.Statements.OfType<ReturnStatementSyntax>().FirstOrDefault()?.Expression
+            : method.ExpressionBody?.Expression;
 
-        return fallback;
+        return expression switch
+        {
+            LiteralExpressionSyntax literal when literal.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.StringLiteralExpression)
+                => literal.Token.ValueText,
+            // `=> Route` or `=> MyHub.Route`: a constant declared on the hub (or a base type).
+            IdentifierNameSyntax identifier => FindStringConstant(hubSymbol, identifier.Identifier.ValueText) ?? fallback,
+            MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax owner, Name: IdentifierNameSyntax name }
+                when owner.Identifier.ValueText == hubSymbol.Name
+                => FindStringConstant(hubSymbol, name.Identifier.ValueText) ?? fallback,
+            _ => fallback
+        };
     }
 
     private static DiagnosticModel MakeDiagnostic(DiagnosticDescriptor descriptor, ISymbol symbol, params string[] args)

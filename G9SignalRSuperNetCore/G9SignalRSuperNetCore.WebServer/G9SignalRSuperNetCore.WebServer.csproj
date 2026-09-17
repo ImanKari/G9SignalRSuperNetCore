@@ -15,6 +15,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\G9SignalRSuperNetCore.Server\G9SignalRSuperNetCore.Server.csproj" />
+		<ProjectReference Include="..\G9SignalRSuperNetCore.Server.MessagePack\G9SignalRSuperNetCore.Server.MessagePack.csproj" />
 		<ProjectReference Include="..\G9SignalRSuperNetCore.Sample.Shared\G9SignalRSuperNetCore.Sample.Shared.csproj" />
 	</ItemGroup>
 

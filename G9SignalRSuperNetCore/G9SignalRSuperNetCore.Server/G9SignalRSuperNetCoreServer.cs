@@ -33,14 +33,13 @@ namespace G9SignalRSuperNetCore.Server;
 /// </remarks>
 public static class G9SignalRSuperNetCoreServer
 {
-    private static int _basicServiceAdded;
-    private static int _jwtServiceAdded;
-
     private static readonly Dictionary<string, TokenValidationParameters> HubTokenValidationParameters
         = new(StringComparer.Ordinal);
 
     /// <summary>
     ///     Adds the SignalR SuperNetCore core services (custom UserIdProvider, deny policy, SignalR options).
+    ///     Idempotent per service collection: a second call on the same collection does nothing, while every
+    ///     new collection (a second host, a test server) gets its own registrations.
     /// </summary>
     /// <param name="services">The DI service collection.</param>
     /// <param name="userIdentifier">An optional custom function that maps a connection to a user identifier.</param>
@@ -50,7 +49,7 @@ public static class G9SignalRSuperNetCoreServer
         Func<HubConnectionContext, string?>? userIdentifier = null,
         Action<HubOptions>? configureSignalROptions = null)
     {
-        if (Interlocked.Exchange(ref _basicServiceAdded, 1) == 0)
+        if (TryMark<G9CCoreServicesMarker>(services))
         {
             services.AddSingleton<IUserIdProvider>(_ => new G9CUserIdProvider(userIdentifier));
 
@@ -232,7 +231,7 @@ public static class G9SignalRSuperNetCoreServer
 
         HubTokenValidationParameters[hubPath] = validationParameters;
 
-        if (Interlocked.Exchange(ref _jwtServiceAdded, 1) == 0)
+        if (TryMark<G9CJwtServicesMarker>(services))
         {
             services.AddAuthentication("Bearer")
                 .AddJwtBearer("Bearer", options =>
@@ -306,6 +305,23 @@ public static class G9SignalRSuperNetCoreServer
         app.MapHub<TTargetClass>(hubRoutePattern, options => configureHub?.Invoke(options))
             .RequireAuthorization();
     }
+
+    /// <summary>
+    ///     Registers <typeparamref name="TMarker"/> once per service collection and reports whether this call did it.
+    ///     (A process-wide flag used to skip the registrations for every collection after the first one.)
+    /// </summary>
+    private static bool TryMark<TMarker>(IServiceCollection services) where TMarker : class, new()
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        foreach (var descriptor in services)
+            if (descriptor.ServiceType == typeof(TMarker)) return false;
+        services.AddSingleton(new TMarker());
+        return true;
+    }
+
+    private sealed class G9CCoreServicesMarker;
+
+    private sealed class G9CJwtServicesMarker;
 
     /// <summary>
     ///     A custom <see cref="IUserIdProvider"/> implementation.
