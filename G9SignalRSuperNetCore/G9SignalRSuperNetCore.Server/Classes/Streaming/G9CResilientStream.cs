@@ -10,13 +10,89 @@ namespace G9SignalRSuperNetCore.Server.Classes.Streaming;
 ///     try/finally/Complete dance every time.
 /// </summary>
 /// <remarks>
-///     Zero allocation on the hot path beyond the items themselves: the channel buffer is
-///     sized exactly to <see cref="G9DtStreamOptions.Capacity"/> and the consumer reads in
-///     place. The Microsoft SignalR docs explicitly call out the channel-completion footgun;
-///     this helper removes it by completing the channel in a finally block.
+///     <para>Zero allocation on the hot path beyond the items themselves: the channel buffer is
+///     sized exactly to <see cref="G9DtStreamOptions.Capacity"/> and the consumer reads in place.</para>
+///     <para>Prefer <see cref="Run{T}"/>. It owns the producer: linked cancellation when the consumer
+///     stops, the producer's exception delivered to the consumer instead of a silent end of stream,
+///     and completion in a <c>finally</c>. <see cref="Create{T}"/> is the lower-level pair for callers
+///     that need to hand the writer somewhere else, and it leaves all of that to the caller — a
+///     producer that keeps writing into a <see cref="G9EStreamDropPolicy.Wait"/> channel after the
+///     consumer walked away blocks for ever, and a producer that throws and only disposes its writer
+///     ends the stream as if it had succeeded.</para>
+///     <para>Capacity counts ITEMS, not bytes. With variable payloads, size the capacity against the
+///     largest item you can produce, or keep the items themselves bounded.</para>
 /// </remarks>
 public static class G9CResilientStream
 {
+    /// <summary>
+    ///     Runs <paramref name="producer"/> against a bounded channel and returns the stream to hand
+    ///     straight back to SignalR: <c>return G9CResilientStream.Run&lt;T&gt;((w, t) =&gt; …, ct: ct);</c>
+    /// </summary>
+    /// <remarks>
+    ///     The producer starts when enumeration starts and is owned for its whole life. If the consumer
+    ///     stops early — SignalR client disconnects, the caller breaks out of the loop — the producer's
+    ///     token is cancelled, so a write blocked on a full channel unblocks, and the producer task is
+    ///     awaited before this method returns. If the producer throws, the channel completes WITH that
+    ///     exception, so the consumer sees the failure rather than a stream that merely ended.
+    /// </remarks>
+    /// <typeparam name="T">Item type.</typeparam>
+    /// <param name="producer">Writes items; the token it receives is cancelled when the consumer stops.</param>
+    /// <param name="options">Capacity + drop policy. <c>null</c> = the default options.</param>
+    /// <param name="cancellationToken">The hub method's token; linked into the producer's token.</param>
+    public static async IAsyncEnumerable<T> Run<T>(
+        Func<G9CResilientStreamWriter<T>, CancellationToken, Task> producer,
+        G9DtStreamOptions? options = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (producer is null) throw new ArgumentNullException(nameof(producer));
+
+        var (writer, reader) = Create<T>(options);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var producing = ProduceAsync(producer, writer, linked.Token);
+        try
+        {
+            await foreach (var item in reader.AsAsyncEnumerable(linked.Token).ConfigureAwait(false))
+                yield return item;
+        }
+        finally
+        {
+            // The consumer is gone: release a producer blocked on a full channel, then wait for it so
+            // it cannot outlive the stream and its failure cannot become an unobserved task exception.
+            await linked.CancelAsync().ConfigureAwait(false);
+            await ObserveAsync(producing).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task ProduceAsync<T>(
+        Func<G9CResilientStreamWriter<T>, CancellationToken, Task> producer,
+        G9CResilientStreamWriter<T> writer,
+        CancellationToken ct)
+    {
+        try
+        {
+            await producer(writer, ct).ConfigureAwait(false);
+            writer.Complete();
+        }
+        catch (Exception exception)
+        {
+            // The consumer's enumeration throws this instead of ending cleanly on a half-written stream.
+            writer.Complete(exception);
+        }
+    }
+
+    private static async Task ObserveAsync(Task producing)
+    {
+        try
+        {
+            await producing.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Already delivered to the consumer through the channel, or caused by cancelling the
+            // producer because the consumer stopped. Either way it is not a second failure.
+        }
+    }
+
     /// <summary>
     ///     Creates a bounded producer/consumer pair. Hand <c>Reader.AsAsyncEnumerable(...)</c>
     ///     back to SignalR as the hub method's return value, and write items through

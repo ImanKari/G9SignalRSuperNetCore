@@ -38,6 +38,9 @@ public sealed class TestServer : IAsyncDisposable
     /// <summary>The server root. The generated client appends <see cref="TestHub.Route" /> itself.</summary>
     public string BaseUrl { get; }
 
+    /// <summary>The running host's services, for tests that inspect singleton state such as the hub filter.</summary>
+    public IServiceProvider Services => _app.Services;
+
     /// <summary>Starts a server; <paramref name="offerMessagePack" /> adds the MessagePack protocol next to JSON.</summary>
     public static async Task<TestServer> StartAsync(bool offerMessagePack)
     {

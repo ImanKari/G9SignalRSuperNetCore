@@ -45,4 +45,20 @@ public static class G9CTelemetry
     /// <summary>Counts hub invocations rejected because authorization claims/roles are missing.</summary>
     public static readonly Counter<long> AuthorizationRejections =
         Meter.CreateCounter<long>("g9.signalr.authorization_rejections", description: "Hub invocations rejected by [G9AttrRequireRole]/[G9AttrRequireClaim].");
+
+    /// <summary>Items yielded by streaming hub methods carrying [G9AttrTelemetry].</summary>
+    public static readonly Counter<long> StreamItems =
+        Meter.CreateCounter<long>("g9.signalr.stream_items", description: "Items yielded by streaming hub methods.");
+
+    /// <summary>
+    ///     How long a streaming hub method took to yield its FIRST item. A stream's total duration says
+    ///     little on its own - it includes however long the consumer took to read - while time to first
+    ///     item is what the caller waits for before anything happens.
+    /// </summary>
+    public static readonly Histogram<double> StreamFirstItemMs =
+        Meter.CreateHistogram<double>("g9.signalr.stream_first_item_ms", unit: "ms", description: "Time to the first item of a streaming hub method.");
+
+    /// <summary>End-to-end duration of a streaming hub method, from invocation to the end of enumeration.</summary>
+    public static readonly Histogram<double> StreamDurationMs =
+        Meter.CreateHistogram<double>("g9.signalr.stream_duration_ms", unit: "ms", description: "Full enumeration duration of a streaming hub method.");
 }

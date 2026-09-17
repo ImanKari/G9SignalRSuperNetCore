@@ -304,9 +304,14 @@ internal static class G9Emitter
         switch (method.ReturnKind)
         {
             case MethodReturnKind.Task:
+                // Acknowledged unless the hub method declares [G9AttrOneWay]: awaiting a call that had
+                // already returned before the server ran it - and could not surface what the server threw -
+                // is not what `await` reads as (2.7.0, review T03).
                 sb.Append("    public ").Append(method.ReturnTypeFqName).Append(' ').Append(method.Name)
                   .Append('(').Append(paramList).AppendLine(")");
-                sb.Append("        => _owner.Connection.SendCoreAsync(\"").Append(method.Name)
+                sb.Append(method.IsOneWay
+                      ? "        => _owner.Connection.SendCoreAsync(\""
+                      : "        => _owner.Connection.InvokeCoreAsync(\"").Append(method.Name)
                   .Append("\", ").Append(argArray).Append(", ").Append(ctExpr).AppendLine(");");
                 break;
 
@@ -321,7 +326,9 @@ internal static class G9Emitter
             case MethodReturnKind.ValueTask:
                 sb.Append("    public ").Append(method.ReturnTypeFqName).Append(' ').Append(method.Name)
                   .Append('(').Append(paramList).AppendLine(")");
-                sb.Append("        => new global::System.Threading.Tasks.ValueTask(_owner.Connection.SendCoreAsync(\"")
+                sb.Append(method.IsOneWay
+                      ? "        => new global::System.Threading.Tasks.ValueTask(_owner.Connection.SendCoreAsync(\""
+                      : "        => new global::System.Threading.Tasks.ValueTask(_owner.Connection.InvokeCoreAsync(\"")
                   .Append(method.Name).Append("\", ").Append(argArray).Append(", ").Append(ctExpr).AppendLine("));");
                 break;
 

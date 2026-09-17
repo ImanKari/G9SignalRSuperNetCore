@@ -19,6 +19,11 @@ namespace G9SignalRSuperNetCore.Server.MessagePack;
 [GenerateShapeFor<G9DtBeginDownloadResult>]
 [GenerateShapeFor<G9DtUploadProgress>]
 [GenerateShapeFor<G9DtPresenceEvent>]
+// A no-result hub method is an acknowledged invocation from 2.7.0, and SignalR binds such a call's result
+// as System.Object. Nothing is ever written for it - the completion carries no result - but the protocol
+// resolves the converter before it knows that, so the shape has to exist. This is NOT a way to send
+// untyped object payloads: the shape describes an opaque, memberless type.
+[GenerateShapeFor<object>]
 [GenerateShapeFor<byte[]>]
 [GenerateShapeFor<string>]
 [GenerateShapeFor<bool>]

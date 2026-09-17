@@ -31,8 +31,13 @@ namespace G9SignalRSuperNetCore.Server.Classes.Filters;
 /// </remarks>
 public sealed partial class G9CHubFilter : IHubFilter
 {
+    private const int IdleSweepThreshold = 10_000;
+    private static readonly TimeSpan IdleSweepAfter = TimeSpan.FromHours(1);
+
     private readonly ConcurrentDictionary<MethodInfo, MethodMeta> _methodCache = new();
-    private readonly ConcurrentDictionary<string, G9CTokenBucket> _buckets = new(StringComparer.Ordinal);
+    // Keyed by connection FIRST so a disconnect drops that connection's buckets in one O(1) removal
+    // instead of scanning every bucket in the process (Bundle 5 review, T02).
+    private readonly ConcurrentDictionary<string, ConnectionBuckets> _buckets = new(StringComparer.Ordinal);
     private readonly G9CConnectionCounter _userConnections = new();
     private readonly G9CConnectionCounter _ipConnections = new();
     private readonly ILogger _logger;
@@ -120,8 +125,14 @@ public sealed partial class G9CHubFilter : IHubFilter
         // Rate limit (per connection + method).
         if (meta.RateLimit is not null)
         {
-            var key = string.Concat(context.Context.ConnectionId, "|", context.HubMethodName);
-            var bucket = _buckets.GetOrAdd(key, _ => new G9CTokenBucket(meta.RateLimit.PerSecond, meta.RateLimit.Burst));
+            // Disconnect is what normally frees these; the sweep only covers a connection whose
+            // disconnect never ran, and only once there are more than a healthy process would hold.
+            if (_buckets.Count > IdleSweepThreshold) SweepIdleBuckets(IdleSweepAfter);
+
+            var perConnection = _buckets.GetOrAdd(context.Context.ConnectionId, static _ => new ConnectionBuckets());
+            perConnection.Touch();
+            var bucket = perConnection.Methods.GetOrAdd(context.HubMethodName,
+                _ => new G9CTokenBucket(meta.RateLimit.PerSecond, meta.RateLimit.Burst));
             if (!bucket.TryAcquire())
             {
                 G9CTelemetry.RateLimitedInvocations.Add(1);
@@ -135,12 +146,26 @@ public sealed partial class G9CHubFilter : IHubFilter
         // Optional telemetry span.
         if (meta.TelemetryName is not null)
         {
-            using var activity = G9CTelemetry.ActivitySource.StartActivity(meta.TelemetryName, ActivityKind.Server);
+            var activity = G9CTelemetry.ActivitySource.StartActivity(meta.TelemetryName, ActivityKind.Server);
             activity?.SetTag("g9.connection_id", context.Context.ConnectionId);
             activity?.SetTag("g9.user_id", context.Context.UserIdentifier);
             try
             {
                 var result = await next(context).ConfigureAwait(false);
+
+                // A streaming method returns as soon as its iterator exists, usually before a single item
+                // has been produced, so this span covers the invocation and NOT the enumeration. Saying
+                // so is the honest thing the filter can do: wrapping the stream would need the item type
+                // at runtime, and building it with MakeGenericType is not AOT-safe (T04). A hub that
+                // wants enumeration metrics wraps its own stream with G9CStreamTelemetry.Track<T>, where
+                // the type is known at compile time.
+                if (result is not null && IsAsyncEnumerable(result.GetType()))
+                {
+                    activity?.SetTag("g9.stream", true);
+                    activity?.SetTag("g9.outcome", "stream_started");
+                    return result;
+                }
+
                 activity?.SetTag("g9.outcome", "ok");
                 return result;
             }
@@ -154,6 +179,10 @@ public sealed partial class G9CHubFilter : IHubFilter
                 activity?.SetTag("g9.outcome", "faulted");
                 activity?.SetTag("exception.type", ex.GetType().FullName);
                 throw;
+            }
+            finally
+            {
+                activity?.Dispose();
             }
         }
 
@@ -224,11 +253,48 @@ public sealed partial class G9CHubFilter : IHubFilter
             tracker?.OnDisconnected(key);
         }
 
+        // Rate-limit buckets are per connection and die with it. Without this the dictionary grew for
+        // the life of the process, one entry per historical connection that ever hit a limited method —
+        // which on mobile, where every tunnel change is a new connection, is a slow leak (T02).
+        _buckets.TryRemove(context.Context.ConnectionId, out _);
+
         // Bundle 5: drop the cached session key (if any) so its bytes are zeroed.
         var sealer = context.Context.GetHttpContext()?.RequestServices.GetService<G9CSessionSealer>();
         sealer?.DropSession(context.Context.ConnectionId);
 
         await next(context, exception).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether a hub method returned a stream, read from the instance's own type (no generic construction).</summary>
+    private static bool IsAsyncEnumerable(Type type)
+    {
+        foreach (var contract in type.GetInterfaces())
+        {
+            if (contract.IsGenericType && contract.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>)) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    ///     Connections currently holding rate-limit buckets. It tracks the live connections that have
+    ///     called a rate-limited method, so it should sit at or below the active connection count; a
+    ///     number that climbs with total connections ever made would mean cleanup stopped working.
+    /// </summary>
+    public int TrackedRateLimitConnections => _buckets.Count;
+
+    /// <summary>
+    ///     Fallback for buckets whose disconnect never arrived. Removes connections idle longer than
+    ///     <paramref name="idleFor"/>, and is only consulted once the dictionary is larger than a
+    ///     healthy process should need, so the normal path stays free of sweeping.
+    /// </summary>
+    private void SweepIdleBuckets(TimeSpan idleFor)
+    {
+        var cutoff = DateTime.UtcNow - idleFor;
+        foreach (var pair in _buckets)
+        {
+            if (pair.Value.LastUsedUtc < cutoff) _buckets.TryRemove(pair.Key, out _);
+        }
     }
 
     private MethodMeta GetOrAddMeta(MethodInfo method) =>
@@ -249,6 +315,18 @@ public sealed partial class G9CHubFilter : IHubFilter
                 claims.Length > 0 ? claims : null,
                 telemetryName);
         });
+
+    /// <summary>One connection's rate-limit buckets, by method, with the last time it used any of them.</summary>
+    private sealed class ConnectionBuckets
+    {
+        private long _lastUsedTicks = DateTime.UtcNow.Ticks;
+
+        public ConcurrentDictionary<string, G9CTokenBucket> Methods { get; } = new(StringComparer.Ordinal);
+
+        public DateTime LastUsedUtc => new(Interlocked.Read(ref _lastUsedTicks), DateTimeKind.Utc);
+
+        public void Touch() => Interlocked.Exchange(ref _lastUsedTicks, DateTime.UtcNow.Ticks);
+    }
 
     private sealed record MethodMeta(
         G9AttrRateLimitAttribute? RateLimit,

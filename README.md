@@ -19,6 +19,7 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ## Table of contents
 
 - [What's new](#whats-new)
+  - [2.7 — Awaited calls really wait, and four correctness fixes from an external review](#27--awaited-calls-really-wait-and-four-correctness-fixes-from-an-external-review)
   - [2.6 — MessagePack hub protocol (opt-in), generated-client and registration fixes](#26--messagepack-hub-protocol-opt-in-generated-client-and-registration-fixes)
   - [2.5.3 — Client multi-targets netstandard2.1 (Unity)](#253--client-multi-targets-netstandard21-unity)
   - [2.5.1 — Hub-filter single-constructor fix](#251--hub-filter-single-constructor-fix)
@@ -64,6 +65,51 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ---
 
 ## What's new
+
+### 2.7 — Awaited calls really wait, and four correctness fixes from an external review
+
+An independent review of the library (and of G9SyncData, which sits on it) found five issues. All five are fixed here. One of them changes behaviour you may be relying on — read the first item.
+
+**Changed — `await` on a no-result method now waits for the server.** A generated method returning `Task` or `ValueTask` was emitted as [`SendCoreAsync`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.signalr.client.hubconnection.sendcoreasync?view=aspnetcore-10.0), which completes when the message has been written to the connection. Awaiting it therefore returned *before* the server had run the method, and an exception thrown there could not be observed through that task at all — while a method returning `Task<T>` was an acknowledged invocation, so two calls that look the same in your code behaved differently.
+
+From 2.7.0 a no-result method is an acknowledged invocation: `await client.Server.SaveAsync(row)` returns when the server is done, and a server-side failure surfaces as a `HubException` at the caller.
+
+```csharp
+// Keep the old fire-and-forget behaviour where you actually want it:
+[G9AttrOneWay]
+public Task Heartbeat(long ticks) => …;
+```
+
+**Source change:** none. **Behaviour change:** calls that used to return immediately now wait for the server. Add `[G9AttrOneWay]` to any hub method where that wait is not wanted (telemetry pings, presence beacons) and regenerate. If you use the MessagePack protocol, no action is needed — the library's shape providers now cover the result type an acknowledged no-result call binds.
+
+**Fixed — rate-limit buckets are released when the connection ends.** `[G9AttrRateLimit]` allocated a token bucket per `(connection, method)` in a singleton dictionary and never removed it. `OnDisconnectedAsync` cleaned up every other per-connection structure but not this one, so on a server with mobile clients — where every tunnel change is a new connection — the dictionary grew for the life of the process. Buckets are now held per connection and dropped in one lookup when it disconnects, with an idle sweep as a fallback for a disconnect that never arrives. `G9CHubFilter.TrackedRateLimitConnections` exposes the live count for a health check.
+
+**Added — `G9CResilientStream.Run` owns the producer.** `Create<T>` hands back a writer/reader pair and leaves the lifetime to you, which has two sharp edges: a producer that keeps writing after the consumer walked away blocks for ever on a `Wait` channel, and a producer that throws but only disposes its writer ends the stream as though it had succeeded — the consumer sees a short stream and no error.
+
+```csharp
+public IAsyncEnumerable<Row> Rows(CancellationToken ct) =>
+    G9CResilientStream.Run<Row>(async (writer, token) =>
+    {
+        await foreach (var row in _db.ReadAsync(token))
+            await writer.WriteAsync(row, token);   // throw here and the CONSUMER sees it
+    }, new G9DtStreamOptions { Capacity = 256 }, ct);
+```
+
+`Run` links cancellation to the consumer, so abandoning the stream releases a blocked producer; awaits the producer before returning; and completes the channel *with* the producer's exception. `Create<T>` is unchanged for callers that need the pair. Note that `Capacity` counts items, not bytes.
+
+**Added — stream-aware telemetry.** `[G9AttrTelemetry]` on a streaming method could only time the invocation: the method returns as soon as its iterator exists, long before the first item, so the span described creating the iterator. The filter now says so (`g9.stream`, `g9.outcome=stream_started`) instead of implying it measured the stream, and `G9CStreamTelemetry.Track<T>(stream, name, ct)` measures the enumeration where the item type is known — time to first item, item count, full duration, and how it ended:
+
+```csharp
+[G9AttrTelemetry("ChatHub.Subscribe")]
+public IAsyncEnumerable<Message> Subscribe(CancellationToken ct) =>
+    G9CStreamTelemetry.Track(Produce(ct), "ChatHub.Subscribe", ct);
+```
+
+New metrics on the `G9SignalRSuperNetCore` meter: `g9.signalr.stream_items`, `g9.signalr.stream_first_item_ms`, `g9.signalr.stream_duration_ms`.
+
+**Fixed — a completed upload is verified, not assumed from its name.** `BeginAsync` reported `AlreadyCompleted = true` whenever a file already existed under the requested name, without checking it against the declared size or SHA-256. Uploading a *different* file under a name already taken was therefore reported as complete though its bytes were never sent. The committed file must now match the declared length and hash; otherwise the call fails with `G9_UPLOAD_NAME_CONFLICT`. Resuming an upload id with different content (a different name, size or hash) fails with `G9_UPLOAD_METADATA_CONFLICT` rather than silently adopting the new numbers — a resume with a different chunk size is still fine, since that changes only how the bytes are carried.
+
+Neither the upload service nor its hub methods carry an ownership parameter: authorizing who may begin, resume or download an upload remains the host's job, and path sanitisation is not object authorization.
 
 ### 2.6 — MessagePack hub protocol (opt-in), generated-client and registration fixes
 
@@ -140,7 +186,8 @@ This release closes out Bundles 3, 4, and 5 in a single combined drop.
 
 **Bundle 4 — Streaming & resilience**
 
-- `G9CResilientStream.Create<T>(options)` — bounded producer/consumer pair that completes the channel deterministically (avoids the canonical SignalR streaming footgun where a thrown exception leaves the channel hanging open).
+- `G9CResilientStream.Run<T>(producer, options, ct)` — runs a producer against a bounded channel and owns it: cancels it when the consumer stops, awaits it, and completes the channel WITH its exception so a failed producer faults the consumer instead of ending the stream quietly. Prefer it.
+- `G9CResilientStream.Create<T>(options)` — the lower-level producer/consumer pair, for callers that hand the writer elsewhere. Completion and producer lifetime are then the caller's.
 - `G9DtStreamOptions` — capacity plus drop policy: `Wait`, `DropNewest`, `DropOldest`.
 - `[G9AttrStreamBackpressure(capacity, dropPolicy)]` — declarative backpressure metadata. Hub authors can read it back through reflection (`GetCustomAttribute<…>().ToOptions()`) when constructing the stream.
 - `G9CClientReconnectPolicy` (client) — drop-in replacement for `WithAutomaticReconnect()` with exponential backoff plus ±15% jitter, configurable max delay, max elapsed time. Wired by default into the generated client base.
@@ -178,16 +225,17 @@ Version 2.1 adds the production-grade policy surface and a complete resumable fi
 
 **Declarative policy attributes** (Bundle 2):
 
-- `[G9AttrRateLimit(perSecond: 5, burst: 10)]` — per-(connection, method) lock-free token bucket. Rejects with `G9_RATE_LIMITED` and emits a metric.
+- `[G9AttrRateLimit(perSecond: 5, burst: 10)]` — per-(connection, method) lock-free token bucket, released when the connection disconnects. Rejects with `G9_RATE_LIMITED` and emits a metric.
 - `[G9AttrConnectionLimit(perUser: 5, perIp: 50)]` — class-level cap on simultaneous connections. Rejects with `G9_CONNECTION_LIMIT` before `OnConnectedAsync` returns.
 - `[G9AttrConnectionRequired]` — fail-fast guard for methods that should not run on aborted connections.
 - `[G9AttrRequireRole("admin")]` / `[G9AttrRequireRole("a","b")]` — shorthand for role-gated methods, returning `G9_ROLE_REQUIRED`.
 - `[G9AttrRequireClaim("scope", "chat:write")]` — claim-gated methods, returning `G9_CLAIM_REQUIRED`.
-- `[G9AttrTelemetry]` / `[G9AttrTelemetry("name")]` — emits `ActivitySource` spans (`G9SignalRSuperNetCore`) with connection id, user id, and outcome.
+- `[G9AttrTelemetry]` / `[G9AttrTelemetry("name")]` — emits `ActivitySource` spans (`G9SignalRSuperNetCore`) with connection id, user id, and outcome. On a STREAMING method the span covers the invocation only (the method returns before the first item); wrap the stream with `G9CStreamTelemetry.Track<T>` to measure the enumeration.
+- `[G9AttrOneWay]` — makes a generated no-result method fire-and-forget. Without it, awaiting one waits for the server (2.7.0).
 
 **Stable error codes** (`G9CErrorCodes`): `G9_RATE_LIMITED`, `G9_CONNECTION_LIMIT`, `G9_CONNECTION_REQUIRED`, `G9_ROLE_REQUIRED`, `G9_CLAIM_REQUIRED`, `G9_UPLOAD_TOO_LARGE`, `G9_UPLOAD_HASH_MISMATCH`, `G9_UPLOAD_UNKNOWN_ID`, `G9_UPLOAD_FAILED`. Clients switch on `HubException.Message` to render localized errors or trigger recovery.
 
-**Built-in metrics** through `System.Diagnostics.Metrics` on the `G9SignalRSuperNetCore` meter: `g9.signalr.rate_limited_invocations`, `g9.signalr.connection_limit_rejections`, `g9.signalr.authorization_rejections`. Subscribe with OpenTelemetry's `AddMeter("G9SignalRSuperNetCore")`.
+**Built-in metrics** through `System.Diagnostics.Metrics` on the `G9SignalRSuperNetCore` meter: `g9.signalr.rate_limited_invocations`, `g9.signalr.connection_limit_rejections`, `g9.signalr.authorization_rejections`, `g9.signalr.stream_items`, `g9.signalr.stream_first_item_ms`, `g9.signalr.stream_duration_ms`. Subscribe with OpenTelemetry's `AddMeter("G9SignalRSuperNetCore")`.
 
 **Resumable file upload** (real, not vapourware):
 
