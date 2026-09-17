@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using G9SignalRSuperNetCore.Server.Classes.Abstracts;
+using G9SignalRSuperNetCore.Server.Classes.Attributes;
 using G9SignalRSuperNetCore.Server.Classes.FileUpload;
 using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.AspNetCore.SignalR;
@@ -84,6 +85,34 @@ public sealed class TestHub : G9AHubBase<TestHub, ITestHubClient>
     }
 
     public Task Poke(int n) => Clients.Caller.Poked(TestReading.Create(n));
+
+    // --- 2.7.0 call semantics (review T03) -------------------------------------------------------
+    // Counters are static because the hub is constructed per invocation; every test reads a delta.
+
+    /// <summary>How many times <see cref="SlowWork"/> has finished.</summary>
+    public static int SlowWorkCompleted;
+
+    /// <summary>A no-result method that takes a while: awaiting it must mean the server finished it.</summary>
+    public async Task SlowWork(int delayMs)
+    {
+        await Task.Delay(delayMs, Context.ConnectionAborted);
+        Interlocked.Increment(ref SlowWorkCompleted);
+    }
+
+    /// <summary>A no-result method that fails: awaiting it must surface the failure.</summary>
+    public Task AlwaysFails() => throw new HubException("the server refused");
+
+    /// <summary>Rate limited, so calling it makes the filter allocate a bucket for this connection.</summary>
+    [G9AttrRateLimit(1000, 1000)]
+    public Task<int> Limited(int n) => Task.FromResult(n);
+
+    /// <summary>The opt-out: returns to the caller without waiting for the server.</summary>
+    [G9AttrOneWay]
+    public async Task FireAndForget(int delayMs)
+    {
+        await Task.Delay(delayMs, Context.ConnectionAborted);
+        Interlocked.Increment(ref SlowWorkCompleted);
+    }
 
     public Task<G9DtBeginUploadResult> BeginUpload(string uploadId, string fileName, long totalBytes, int chunkSize, string declaredSha256Hex) =>
         Uploads.BeginAsync(uploadId, fileName, totalBytes, chunkSize, declaredSha256Hex, Context.ConnectionAborted).AsTask();

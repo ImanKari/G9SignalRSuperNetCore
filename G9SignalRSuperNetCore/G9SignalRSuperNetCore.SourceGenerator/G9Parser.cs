@@ -15,6 +15,7 @@ internal static class G9Parser
 {
     private const string ExcludeAttributeName = "G9AttrExcludeFromClientGenerationAttribute";
     private const string DenyAccessAttributeName = "G9AttrDenyAccessAttribute";
+    private const string OneWayAttributeName = "G9AttrOneWayAttribute";
 
     private static readonly HashSet<string> FrameworkExcludedMethods = new(System.StringComparer.Ordinal)
     {
@@ -204,7 +205,8 @@ internal static class G9Parser
                 ReturnKind: returnKind,
                 UnwrappedTypeFqName: unwrapped,
                 Parameters: new EquatableArray<ParameterModel>(parameters),
-                XmlDocCommentXml: member.GetDocumentationCommentXml(cancellationToken: ct)));
+                XmlDocCommentXml: member.GetDocumentationCommentXml(cancellationToken: ct),
+                IsOneWay: HasAttribute(member, OneWayAttributeName)));
         }
 
         return result;

@@ -35,7 +35,8 @@ internal sealed record MethodModel(
     MethodReturnKind ReturnKind,
     string? UnwrappedTypeFqName,
     EquatableArray<ParameterModel> Parameters,
-    string? XmlDocCommentXml);
+    string? XmlDocCommentXml,
+    bool IsOneWay = false);
 
 internal sealed record ListenerMethodModel(
     string Name,

@@ -83,24 +83,54 @@ public sealed class G9CUploadService : IG9UploadService
         var metaPath = MetaPath(uploadId);
         var finalPath = Path.Combine(_options.RootDirectory, safeFileName);
 
-        // Idempotent: if already committed return that.
+        // Idempotent ONLY for the same content. A file at this path proves a file with this NAME was
+        // committed; it says nothing about whose bytes they are. Reporting a different upload complete
+        // because the name matched would tell the client its data is safe when it was never sent
+        // (review T05), so the committed file has to match the size and hash being declared.
         if (File.Exists(finalPath) && !File.Exists(partialPath))
         {
-            return new G9DtBeginUploadResult
+            var committed = new FileInfo(finalPath);
+            if (committed.Length == totalBytes &&
+                string.Equals(await GetOrComputeShaAsync(finalPath, committed, ct).ConfigureAwait(false),
+                    meta.DeclaredSha256, StringComparison.Ordinal))
             {
-                UploadId = uploadId,
-                BytesAlreadyReceived = totalBytes,
-                ChunkSize = capped,
-                AlreadyCompleted = true,
-                FinalPath = finalPath
-            };
+                return new G9DtBeginUploadResult
+                {
+                    UploadId = uploadId,
+                    BytesAlreadyReceived = totalBytes,
+                    ChunkSize = capped,
+                    AlreadyCompleted = true,
+                    FinalPath = finalPath
+                };
+            }
+
+            _log.LogWarning(
+                "Upload {UploadId} declares {DeclaredBytes} bytes for {FileName}, but a different file of {CommittedBytes} bytes is already committed under that name",
+                uploadId, totalBytes, safeFileName, committed.Length);
+            throw new InvalidOperationException(G9CErrorCodes.UploadNameConflict);
         }
 
         var lockSlim = _locks.GetOrAdd(uploadId, static _ => new SemaphoreSlim(1, 1));
         await lockSlim.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            // Persist or refresh meta.
+            // An upload id stands for one piece of content. Resuming it with a different size, name or
+            // hash is a different upload wearing the same id: silently adopting the new numbers would
+            // append the new bytes to the old partial and hash-check the result against neither (T05).
+            if (File.Exists(metaPath))
+            {
+                var existing = JsonSerializer.Deserialize(
+                    await File.ReadAllTextAsync(metaPath, ct).ConfigureAwait(false),
+                    G9CUploadJsonContext.Default.G9CUploadMetadata);
+                if (existing is not null && !existing.DescribesSameContentAs(meta))
+                {
+                    _log.LogWarning(
+                        "Upload {UploadId} was begun for {OldFileName} ({OldBytes} bytes) and is being resumed as {NewFileName} ({NewBytes} bytes)",
+                        uploadId, existing.FileName, existing.TotalBytes, meta.FileName, meta.TotalBytes);
+                    throw new InvalidOperationException(G9CErrorCodes.UploadMetadataConflict);
+                }
+            }
+
             await File.WriteAllTextAsync(metaPath,
                 JsonSerializer.Serialize(meta, G9CUploadJsonContext.Default.G9CUploadMetadata),
                 ct).ConfigureAwait(false);
@@ -438,5 +468,15 @@ public sealed class G9CUploadService : IG9UploadService
         public required int ChunkSize { get; init; }
         public required string DeclaredSha256 { get; init; }
         public required DateTime CreatedUtc { get; init; }
+
+        /// <summary>
+        ///     Whether two begin calls for one upload id describe the same content. The chunk size is
+        ///     deliberately excluded: a client may resume with a different chunk size, and that changes
+        ///     only how the same bytes are carried.
+        /// </summary>
+        public bool DescribesSameContentAs(G9CUploadMetadata other) =>
+            TotalBytes == other.TotalBytes
+            && string.Equals(FileName, other.FileName, StringComparison.Ordinal)
+            && string.Equals(DeclaredSha256, other.DeclaredSha256, StringComparison.Ordinal);
     }
 }

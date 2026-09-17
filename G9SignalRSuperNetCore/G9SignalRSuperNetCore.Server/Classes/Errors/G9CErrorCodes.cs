@@ -44,4 +44,10 @@ public static class G9CErrorCodes
 
     /// <summary>A file upload failed for a reason other than the specific cases above (I/O, cancellation, etc.).</summary>
     public const string UploadFailed = "G9_UPLOAD_FAILED";
+
+    /// <summary>A different file is already committed under the requested name (same name, other bytes).</summary>
+    public const string UploadNameConflict = "G9_UPLOAD_NAME_CONFLICT";
+
+    /// <summary>An upload id was resumed with metadata describing different content than it was begun with.</summary>
+    public const string UploadMetadataConflict = "G9_UPLOAD_METADATA_CONFLICT";
 }
