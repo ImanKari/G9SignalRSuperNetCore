@@ -394,25 +394,25 @@ steps:
       }
 
       Set-Location $destination
-      Write-Output '*****Ignore giant file****'
-      git rm --cached giant_file
-      git commit --amend -CHEAD
-      Write-Output '*****Git removing remote secondary****'
-      git remote rm secondary
-      Write-Output '*****Git remote add****'
-      git remote add --mirror=fetch secondary $destURL
-      Write-Output '*****Git fetch origin****'
-      git fetch $sourceURL
-      Write-Output '*****Git push secondary****'
-      git push secondary --all
+
+      # This clone is `git clone --mirror`, so it is BARE and already holds every branch and tag exactly as Azure
+      # has them. Pushing it with --mirror makes GitHub match Azure, which is the only thing 'mirror' can honestly
+      # mean: a branch or tag deleted on Azure must not linger here, and a rewritten commit must be replaced.
+      #
+      # ⛔ It used to run `git push secondary --all`, which is NOT a force push, so the mirror could not survive a
+      # rewritten commit. It did not survive one: 2.7.0 was pushed, mirrored, then amended on Azure 37 minutes later
+      # (same tree, same author date, new committer date). GitHub kept the pre-amend object, every later push was
+      # rejected as non-fast-forward, and the step failed on every release from 2026-09-17 until this was fixed on
+      # 2026-09-21 - while the packages published perfectly, so the red build looked worse than it was.
+      #
+      # The two lines before it were dead: `git rm --cached giant_file` never matched anything, and
+      # `git commit --amend -CHEAD` cannot run in a bare repository. Both printed a fatal error on every build.
+      Write-Output '*****Git push mirror to GitHub****'
+      git push --mirror $destURL
       $branchesExitCode = $LASTEXITCODE
-      # `--all` means all BRANCHES. The release tags (v<version>, written by the step above) are in this mirror clone too and
-      # go out over the same remote and credentials. A tag that cannot be pushed is a warning, never a failed release: the
-      # step keeps reporting the result of the branch push, as it did before.
-      Write-Output '*****Git push secondary tags****'
-      git push secondary --tags
-      if ($LASTEXITCODE -ne 0) {
-          Write-Host "##vso[task.logissue type=warning]The tags could not be pushed to the GitHub mirror (git exit code $LASTEXITCODE)."
+      # No separate tag push: --mirror already carries refs/tags/* along with the branches.
+      if ($branchesExitCode -ne 0) {
+          Write-Host "##vso[task.logissue type=error]The GitHub mirror push failed (git exit code $branchesExitCode)."
       }
       $global:LASTEXITCODE = $branchesExitCode
       Write-Output '**Azure Devops repo synced with Github repo**'
