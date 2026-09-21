@@ -207,7 +207,8 @@ public partial class MainWindow : Window
             G9EConnectionPhase.Disconnected   => (state.Detail is null
                                                        ? "Disconnected (graceful)."
                                                        : $"Disconnected — {state.Detail}",                          " G9SignalRSuperNetCore  |  Disconnected "),
-            _                                 => ($"State: {state.Phase}",                                          $" G9SignalRSuperNetCore  |  {state.Phase} ")
+            G9EConnectionPhase.TransportFallback => ($"WebSockets-first failed, negotiating instead: {state.Detail}", " G9SignalRSuperNetCore  |  Falling back to negotiation … "),
+            _                              => ($"State: {state.Phase}",                                          $" G9SignalRSuperNetCore  |  {state.Phase} ")
         };
 
         Log(ConnectionLines, $"[{state.Phase}] {text}");
@@ -842,6 +843,13 @@ internal sealed class TestChatClient : ChatHubClient
                 : null,
             configureHttpConnection: G9CHttpResilience.ApplyDefault)
         => _owner = owner;
+
+    // Runs inside the base constructor (before _owner is assigned), so it reads the command-line statics only.
+    protected override void ConfigureConnectionOptions(G9DtClientConnectionOptions options)
+    {
+        options.UseStatefulReconnect = Program.UseStatefulReconnect;   // --stateful-reconnect
+        options.WebSocketsFirst = Program.UseWebSocketsFirst;          // --websockets-first
+    }
 
     public override Task ReceiveMessage(string user, string message)
     {

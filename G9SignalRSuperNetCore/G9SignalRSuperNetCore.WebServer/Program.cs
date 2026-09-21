@@ -63,7 +63,9 @@ public static class Program
         app.MapGet("/logs", () => Results.Content(G9CServerLogPage.Html, "text/html"));
         app.MapHub<G9CServerLogHub>(G9CServerLogHub.Route);
 
-        app.AddSignalRSuperNetCoreServerHub<ChatHub, IChatClient>(routePattern: ChatHub.Route);
+        // Stateful reconnect (2.8) is allowed here and still costs nothing until a client asks for it
+        // (the console harness does with --stateful-reconnect).
+        app.AddSignalRSuperNetCoreServerHub<ChatHub, IChatClient>(routePattern: ChatHub.Route, allowStatefulReconnects: true);
 
         app.Run();
     }

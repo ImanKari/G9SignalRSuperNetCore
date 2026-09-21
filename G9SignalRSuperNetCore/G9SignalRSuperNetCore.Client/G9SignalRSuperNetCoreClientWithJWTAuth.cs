@@ -121,7 +121,7 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
             _configureHttpConnection?.Invoke(configHttp);
         });
 
-        return Connection.StartAsync(cancellationToken);
+        return StartConnectionAsync(cancellationToken);
     }
 
     /// <summary>
@@ -137,6 +137,6 @@ public abstract class G9SignalRSuperNetCoreClientWithJWTAuth<TTargetClass, TServ
             _configureHttpConnection?.Invoke(configHttp);
         });
 
-        return Connection.StartAsync(cancellationToken);
+        return StartConnectionAsync(cancellationToken);
     }
 }

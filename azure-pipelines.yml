@@ -259,6 +259,68 @@ steps:
         Write-Host "Package Publishing Process Complete"
         Write-Host "==============================================="
 
+# Tag the release as v<version> (2.8+). Only on main, and only when everything above succeeded - the tests and ALL the package
+# pushes - so a tag always names a commit whose packages are on NuGet. It sits BEFORE the GitHub sync on purpose: the sync
+# clones this repository afterwards, so the new tag is in that clone and travels to the mirror with the credentials the sync
+# already uses. A tag that exists is never moved. Tagging never fails the release: the packages are already public by now.
+# Needs "Create tag" = Allow for the build service identity on this repository (see README, "Build and test" > "Releases").
+- task: PowerShell@2
+  displayName: "Tag the release (v<version>)"
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  continueOnError: true
+  env:
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+  inputs:
+    targetType: 'inline'
+    script: |
+      try {
+          Set-Location $env:BUILD_SOURCESDIRECTORY
+
+          # The version is the one coordinate every package is built from...
+          $propsPath = 'G9SignalRSuperNetCore/Directory.Build.props'
+          [xml]$props = Get-Content -LiteralPath $propsPath -Raw
+          $version = @($props.Project.PropertyGroup | ForEach-Object { $_.G9PackageVersion } | Where-Object { $_ })[0]
+          if ([string]::IsNullOrWhiteSpace($version)) { throw "G9PackageVersion was not found in $propsPath." }
+          $version = "$version".Trim()
+
+          # ...and it must be the version the publish steps above just pushed: the same globs, this version's file in each.
+          foreach ($pattern in '${{ join(';', parameters.nugetPackages) }}'.Split(';')) {
+              $released = @(Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*.$version.nupkg" })
+              if ($released.Count -eq 0) { throw "No package of version $version matches $pattern, so $version is not what was released." }
+          }
+
+          $tag = "v$version"
+          $auth = "AUTHORIZATION: bearer $env:SYSTEM_ACCESSTOKEN"
+
+          # The agent's clone is shallow and has no tags, so ask the server.
+          $existing = git -c http.extraheader="$auth" ls-remote --tags origin "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw "git ls-remote failed with exit code $LASTEXITCODE." }
+          if ($existing) {
+              Write-Host "Tag $tag already exists ($existing). Leaving it where it is."
+              exit 0
+          }
+
+          $name = $env:BUILD_REQUESTEDFOR
+          if ([string]::IsNullOrWhiteSpace($name)) { $name = 'Azure Pipelines' }
+          $email = $env:BUILD_REQUESTEDFOREMAIL
+          if ([string]::IsNullOrWhiteSpace($email)) { $email = 'azure-pipelines@noreply.invalid' }
+
+          # -f only replaces a stale LOCAL tag on a reused agent; the push below is not forced, so a remote tag cannot move.
+          git -c user.name="$name" -c user.email="$email" tag -f -a $tag -m "Release $version" $env:BUILD_SOURCEVERSION
+          if ($LASTEXITCODE -ne 0) { throw "git tag failed with exit code $LASTEXITCODE." }
+
+          git -c http.extraheader="$auth" push origin "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw "git push of $tag failed with exit code $LASTEXITCODE. Does the build service identity have 'Create tag' on this repository?" }
+
+          Write-Host "Tagged $env:BUILD_SOURCEVERSION as $tag."
+      }
+      catch {
+          Write-Host "##vso[task.logissue type=warning]The release is published but was not tagged: $_"
+          Write-Host "##vso[task.complete result=SucceededWithIssues;]Release not tagged"
+      }
+
+      exit 0
+
 - task: PowerShell@2
   displayName: "Sync Azure Devops repo with GitHub repo"
   inputs:
@@ -338,6 +400,16 @@ steps:
       git fetch $sourceURL
       Write-Output '*****Git push secondary****'
       git push secondary --all
+      $branchesExitCode = $LASTEXITCODE
+      # `--all` means all BRANCHES. The release tags (v<version>, written by the step above) are in this mirror clone too and
+      # go out over the same remote and credentials. A tag that cannot be pushed is a warning, never a failed release: the
+      # step keeps reporting the result of the branch push, as it did before.
+      Write-Output '*****Git push secondary tags****'
+      git push secondary --tags
+      if ($LASTEXITCODE -ne 0) {
+          Write-Host "##vso[task.logissue type=warning]The tags could not be pushed to the GitHub mirror (git exit code $LASTEXITCODE)."
+      }
+      $global:LASTEXITCODE = $branchesExitCode
       Write-Output '**Azure Devops repo synced with Github repo**'
       
       Set-Location $stageDir

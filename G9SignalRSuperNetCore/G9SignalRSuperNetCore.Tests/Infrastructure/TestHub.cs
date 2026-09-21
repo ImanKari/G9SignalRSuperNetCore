@@ -4,6 +4,7 @@ using G9SignalRSuperNetCore.Server.Classes.Abstracts;
 using G9SignalRSuperNetCore.Server.Classes.Attributes;
 using G9SignalRSuperNetCore.Server.Classes.FileUpload;
 using Microsoft.AspNetCore.Connections.Features;
+using Microsoft.AspNetCore.Http.Connections.Features;
 using Microsoft.AspNetCore.SignalR;
 using PolyType;
 
@@ -62,6 +63,31 @@ public sealed class TestHub : G9AHubBase<TestHub, ITestHubClient>
     /// <summary>"Binary" or "Text": the transfer format of this connection, which the hub protocol decides.</summary>
     public Task<string> TransferFormat() =>
         Task.FromResult(Context.Features.Get<ITransferFormatFeature>()?.ActiveFormat.ToString() ?? "unknown");
+
+    // --- 2.8.0 transport selection and stateful reconnect ------------------------------------------
+
+    /// <summary>"WebSockets", "ServerSentEvents" or "LongPolling": the transport this connection ended up on.</summary>
+    public Task<string> Transport() =>
+        Task.FromResult(Context.Features.Get<IHttpTransportFeature>()?.TransportType.ToString() ?? "unknown");
+
+    /// <summary>
+    ///     "on" when this connection negotiated stateful reconnect (client asked, endpoint allowed), else "off". The feature
+    ///     interface is still marked preview in .NET 10, so it is found by name rather than by opting the project in.
+    /// </summary>
+    public Task<string> StatefulReconnect() =>
+        Task.FromResult(Context.Features.Any(feature => feature.Key.Name == "IStatefulReconnectFeature") ? "on" : "off");
+
+    /// <summary>The connection id as the SERVER knows it: unchanged across a resumed (stateful) reconnect.</summary>
+    public Task<string> ServerConnectionId() => Task.FromResult(Context.ConnectionId);
+
+    /// <summary>The ids of the connections the hub was told have ended. A resumed connection must not show up here.</summary>
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> Disconnected = new(StringComparer.Ordinal);
+
+    public override Task OnDisconnectedAsync(Exception? exception)
+    {
+        Disconnected[Context.ConnectionId] = true;
+        return base.OnDisconnectedAsync(exception);
+    }
 
     public Task<TestReading> Echo(TestReading reading) => Task.FromResult(reading);
 

@@ -18,7 +18,14 @@ public enum G9EConnectionPhase
     ///     <c>DisconnectAsync</c> (in which case <see cref="G9DtConnectionState.Detail"/> is null)
     ///     and by terminal reconnect failure (Detail carries the exception summary).
     /// </summary>
-    Disconnected
+    Disconnected,
+    /// <summary>
+    ///     Only with <see cref="G9DtClientConnectionOptions.WebSocketsFirst"/>: the direct WebSocket attempt failed
+    ///     and the same <c>ConnectAsync</c> is about to try again with negotiation.
+    ///     <see cref="G9DtConnectionState.Detail"/> carries the summary of the failure that caused it. It is followed
+    ///     by <see cref="Connected"/> or <see cref="ConnectFailed"/>. (Added last so the existing values keep their numbers.)
+    /// </summary>
+    TransportFallback
 }
 
 /// <summary>One reported lifecycle transition.</summary>
@@ -28,7 +35,8 @@ public enum G9EConnectionPhase
 ///     Optional context: the new connection id on <see cref="G9EConnectionPhase.Connected"/> /
 ///     <see cref="G9EConnectionPhase.Reconnected"/>, an exception summary on
 ///     <see cref="G9EConnectionPhase.ConnectFailed"/> / <see cref="G9EConnectionPhase.Reconnecting"/>
-///     / <see cref="G9EConnectionPhase.Disconnected"/>, or null otherwise.
+///     / <see cref="G9EConnectionPhase.Disconnected"/> / <see cref="G9EConnectionPhase.TransportFallback"/>,
+///     or null otherwise.
 /// </param>
 public readonly record struct G9DtConnectionState(
     G9EConnectionPhase Phase,

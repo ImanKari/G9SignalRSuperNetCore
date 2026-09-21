@@ -1,5 +1,11 @@
-﻿using Microsoft.AspNetCore.Http.Connections.Client;
+﻿using System.Net;
+using System.Net.Http;
+using System.Net.WebSockets;
+using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.Http.Connections.Client;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace G9SignalRSuperNetCore.Client;
 
@@ -35,6 +41,14 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
     ///     Exposed for advanced scenarios, generated proxies, and listener registration.
     /// </summary>
     public HubConnection Connection { get; protected internal set; } = null!;
+
+    /// <summary>
+    ///     The live options of <see cref="Connection"/> while <see cref="G9DtClientConnectionOptions.WebSocketsFirst"/>
+    ///     is in effect, otherwise <c>null</c>; and the transports a fallback negotiates with.
+    /// </summary>
+    private HttpConnectionOptions? _webSocketsFirstOptions;
+
+    private HttpTransportType _negotiatedTransports = HttpTransports.All;
 
     /// <summary>
     ///     Reports lifecycle changes (connecting, connected, reconnecting, reconnected, disconnected,
@@ -73,7 +87,8 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
     }
 
     /// <summary>
-    ///     Builds and stores the underlying <see cref="HubConnection"/>.
+    ///     Builds and stores the underlying <see cref="HubConnection"/>. Asks <see cref="ConfigureConnectionOptions"/>
+    ///     for the opt-in behaviours first (2.8.0), then registers the listeners through <see cref="RegisterListenerMethods"/>.
     /// </summary>
     protected internal void PrepareConnection(
         string serverUrl,
@@ -82,14 +97,46 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
     {
         if (string.IsNullOrEmpty(serverUrl)) throw new ArgumentException("Value cannot be null or empty.", nameof(serverUrl));
 
+        // Opt-in behaviours (2.8.0). With nothing turned on, the builder below is the one every earlier version made.
+        var connectionOptions = new G9DtClientConnectionOptions();
+        ConfigureConnectionOptions(connectionOptions);
+        // Stateful reconnect is agreed during negotiation, so it cannot be combined with skipping negotiation: it wins.
+        var webSocketsFirst = connectionOptions.WebSocketsFirst && !connectionOptions.UseStatefulReconnect;
+
+        HttpConnectionOptions? httpConnectionOptions = null;
+        var negotiatedTransports = HttpTransports.All;
+
         IHubConnectionBuilder builder = new HubConnectionBuilder()
-            .WithUrl(serverUrl, options => configureHttpConnection?.Invoke(options))
+            .WithUrl(serverUrl, options =>
+            {
+                configureHttpConnection?.Invoke(options);
+                if (!webSocketsFirst) return;
+
+                // SignalR copies this object every time it opens a transport — on StartAsync and on each automatic
+                // reconnect — so switching these two properties later changes how the SAME HubConnection connects next.
+                // That is what lets the fallback keep the connection, and with it every handler registered on it.
+                httpConnectionOptions = options;
+                negotiatedTransports = options.Transports;
+                ApplyWebSocketsFirst(options);
+            })
             .WithAutomaticReconnect(new G9CClientReconnectPolicy());
+
+        if (connectionOptions.UseStatefulReconnect)
+        {
+            builder = builder.WithStatefulReconnect();
+            if (connectionOptions.StatefulReconnectBufferSize is { } bufferSize)
+                builder.Services.Configure<HubConnectionOptions>(options => options.StatefulReconnectBufferSize = bufferSize);
+        }
 
         if (customConfigureBuilder != null) builder = customConfigureBuilder(builder);
 
         Connection = builder.Build();
         Connection.ServerTimeout = TimeSpan.FromSeconds(60);
+
+        // Build() resolves the options, so the callback above has run by now. It has not if customConfigureBuilder
+        // swapped the connection factory for one that never reads them; there is nothing to fall back with then.
+        _webSocketsFirstOptions = httpConnectionOptions;
+        _negotiatedTransports = negotiatedTransports;
 
         // Lifecycle events — surface them through StateChanged so consumers don't poke
         // Connection.Reconnecting / Reconnected / Closed directly.
@@ -130,6 +177,22 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
     }
 
     /// <summary>
+    ///     When overridden in a derived class, turns on the opt-in connection behaviours of
+    ///     <see cref="G9DtClientConnectionOptions"/> (stateful reconnect, WebSockets first with a fallback to
+    ///     negotiation). The default implementation turns nothing on, and the connection is built as before 2.8.0.
+    /// </summary>
+    /// <remarks>
+    ///     Called by <see cref="PrepareConnection"/> every time it builds a connection, before the
+    ///     <c>customConfigureBuilder</c> callback (which therefore still has the last word on the builder). Like
+    ///     <see cref="RegisterListenerMethods"/>, it runs inside the base constructor for a client that passes its
+    ///     URL to it, so do not read fields the derived constructor body assigns.
+    /// </remarks>
+    /// <param name="options">A fresh options object with everything off.</param>
+    protected virtual void ConfigureConnectionOptions(G9DtClientConnectionOptions options)
+    {
+    }
+
+    /// <summary>
     ///     Connects to the SignalR server.
     /// </summary>
     public virtual async Task ConnectAsync(CancellationToken cancellationToken = default)
@@ -137,7 +200,7 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
         StateChanged?.Invoke(new G9DtConnectionState(G9EConnectionPhase.Connecting, DateTime.UtcNow, null));
         try
         {
-            await Connection.StartAsync(cancellationToken).ConfigureAwait(false);
+            await StartConnectionAsync(cancellationToken).ConfigureAwait(false);
             StateChanged?.Invoke(new G9DtConnectionState(G9EConnectionPhase.Connected, DateTime.UtcNow, Connection.ConnectionId));
         }
         catch (Exception ex)
@@ -147,6 +210,107 @@ public abstract class G9SignalRSuperNetCoreClient<TTargetClass, TServerHubMethod
                 ex.GetType().Name + ": " + ex.Message));
             throw;
         }
+    }
+
+    /// <summary>
+    ///     Starts <see cref="Connection"/>. Without <see cref="G9DtClientConnectionOptions.WebSocketsFirst"/> this is
+    ///     <see cref="HubConnection.StartAsync"/> and nothing else. With it, the first attempt goes straight to
+    ///     WebSockets without negotiating, and a transport failure is answered with one more attempt that negotiates.
+    /// </summary>
+    /// <remarks>
+    ///     The fallback does NOT rebuild the connection. It switches <see cref="HttpConnectionOptions.SkipNegotiation"/>
+    ///     and <see cref="HttpConnectionOptions.Transports"/> on the options object the connection already reads each time
+    ///     it opens a transport, so <see cref="Connection"/> stays the same instance: handlers registered on it with
+    ///     <c>On&lt;T&gt;()</c>, its timeouts, and references other code holds (a <c>G9CFileUploader</c>) all survive.
+    ///     Derived classes that start the connection themselves should call this instead of
+    ///     <see cref="HubConnection.StartAsync"/>.
+    /// </remarks>
+    protected internal async Task StartConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        var options = _webSocketsFirstOptions;
+        if (options is null)
+        {
+            await Connection.StartAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // Every start begins with WebSockets again: a fallback caused by an outage, or by the network the device was
+        // on at the time, must not pin this client to negotiation. Only while nothing is running — the options of a
+        // live connection decide how its automatic reconnects connect, and those should repeat what worked.
+        if (Connection.State == HubConnectionState.Disconnected) ApplyWebSocketsFirst(options);
+
+        try
+        {
+            await Connection.StartAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+        catch (Exception ex) when (ShouldFallBackToNegotiation(ex, cancellationToken))
+        {
+            options.SkipNegotiation = false;
+            options.Transports = _negotiatedTransports;
+            StateChanged?.Invoke(new G9DtConnectionState(
+                G9EConnectionPhase.TransportFallback, DateTime.UtcNow,
+                ex.GetType().Name + ": " + ex.Message));
+        }
+
+        // Once. If this fails too, its exception is what a client without the option would have thrown.
+        await Connection.StartAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void ApplyWebSocketsFirst(HttpConnectionOptions options)
+    {
+        options.Transports = HttpTransportType.WebSockets;
+        options.SkipNegotiation = true;
+    }
+
+    private bool ShouldFallBackToNegotiation(Exception error, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested) return false;                 // the caller gave up
+        if (Connection.State != HubConnectionState.Disconnected) return false;       // someone else is starting it
+        return !IsFinalConnectFailure(error);
+    }
+
+    /// <summary>
+    ///     A failure that negotiating cannot cure, looked for through the whole exception chain: the credentials were
+    ///     refused (the second attempt would present the same ones), the hub itself refused the handshake (so the
+    ///     transport worked), or the connection is disposed.
+    /// </summary>
+    private static bool IsFinalConnectFailure(Exception error)
+    {
+        if (error is HubException or ObjectDisposedException || IsAuthenticationFailure(error)) return true;
+
+        if (error is AggregateException aggregate)
+        {
+            foreach (var inner in aggregate.InnerExceptions)
+                if (IsFinalConnectFailure(inner)) return true;
+            return false;
+        }
+
+        return error.InnerException is { } cause && IsFinalConnectFailure(cause);
+    }
+
+    private static bool IsAuthenticationFailure(Exception error)
+    {
+#if NET5_0_OR_GREATER
+        if (error is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden }) return true;
+#endif
+        // A refused WebSocket upgrade has no status property to read; the status is in the message only:
+        // "The server returned status code '401' when status code '101' was expected."
+        return error is WebSocketException or HttpRequestException
+               && (MentionsStatusCode(error.Message, "401") || MentionsStatusCode(error.Message, "403"));
+    }
+
+    /// <summary>True when <paramref name="code"/> stands in the message as a number of its own (not inside a port or a longer number).</summary>
+    private static bool MentionsStatusCode(string message, string code)
+    {
+        for (var at = message.IndexOf(code, StringComparison.Ordinal); at >= 0; at = message.IndexOf(code, at + 1, StringComparison.Ordinal))
+        {
+            var digitBefore = at > 0 && char.IsDigit(message[at - 1]);
+            var digitAfter = at + code.Length < message.Length && char.IsDigit(message[at + code.Length]);
+            if (!digitBefore && !digitAfter) return true;
+        }
+
+        return false;
     }
 
     /// <summary>

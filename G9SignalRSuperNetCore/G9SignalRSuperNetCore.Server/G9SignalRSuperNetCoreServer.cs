@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 namespace G9SignalRSuperNetCore.Server;
@@ -194,6 +196,56 @@ public static class G9SignalRSuperNetCoreServer
     }
 
     /// <summary>
+    ///     Sets the server's stateful-reconnect buffer: how many bytes of sent messages the server keeps PER
+    ///     CONNECTION that negotiated stateful reconnect, to replay them after the client resumes. SignalR's default
+    ///     is 100,000; when the buffer is full the server stops sending on that connection until the client
+    ///     acknowledges. Optional — it only matters for endpoints mapped with <c>allowStatefulReconnects: true</c>,
+    ///     and multiplies by the number of such connections.
+    /// </summary>
+    /// <remarks>
+    ///     Applies to every hub, including one that has options of its own (<c>AddHubOptions&lt;THub&gt;</c>, which
+    ///     <see cref="AddG9SignalRSuperNetCoreGroups{THub}"/> uses): SignalR itself does not carry this value from the
+    ///     global options into those, so the library does. A hub whose own options set a size keeps it.
+    /// </remarks>
+    /// <param name="services">DI service collection.</param>
+    /// <param name="bufferSizeBytes">The buffer size in bytes; must be positive.</param>
+    public static IServiceCollection AddG9SignalRSuperNetCoreStatefulReconnect(
+        this IServiceCollection services,
+        long bufferSizeBytes)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSizeBytes);
+
+        // A hub without options of its own reads the global HubOptions.
+        services.Configure<HubOptions>(options => options.StatefulReconnectBufferSize = bufferSizeBytes);
+
+        // A hub WITH its own HubOptions<THub> (AddHubOptions<THub>, which AddG9SignalRSuperNetCoreGroups<THub> uses for its
+        // filters) reads those instead. SignalR seeds them from the global options member by member and — up to
+        // ASP.NET Core 10 — leaves StatefulReconnectBufferSize out, so the value above would silently not apply to it.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton(typeof(IPostConfigureOptions<>), typeof(G9CStatefulReconnectBufferSetup<>)));
+        return services;
+    }
+
+    /// <summary>
+    ///     Carries the global <see cref="HubOptions.StatefulReconnectBufferSize"/> into a hub's own
+    ///     <see cref="HubOptions{THub}"/> unless that hub was given a size of its own. Registered as an open generic
+    ///     because the hub types are not known here; it looks at every options type once and leaves all others alone.
+    /// </summary>
+    private sealed class G9CStatefulReconnectBufferSetup<TOptions>(IServiceProvider services) : IPostConfigureOptions<TOptions>
+        where TOptions : class
+    {
+        private static readonly long SignalRDefault = new HubOptions().StatefulReconnectBufferSize;
+
+        public void PostConfigure(string? name, TOptions options)
+        {
+            // Not the global options themselves: they are the source (and resolving them from here would recurse).
+            if (options is not HubOptions perHub || options.GetType() == typeof(HubOptions)) return;
+            if (perHub.StatefulReconnectBufferSize != SignalRDefault) return;   // this hub was given its own size
+            perHub.StatefulReconnectBufferSize = services.GetRequiredService<IOptions<HubOptions>>().Value.StatefulReconnectBufferSize;
+        }
+    }
+
+    /// <summary>
     ///     Adds the SignalR SuperNetCore server services for an unauthenticated hub.
     /// </summary>
     /// <typeparam name="TTargetClass">The hub type derived from <see cref="G9AHubBase{TTargetClass,TClientSideMethodsInterface}"/>.</typeparam>
@@ -279,6 +331,39 @@ public static class G9SignalRSuperNetCoreServer
     }
 
     /// <summary>
+    ///     Maps an unauthenticated SignalR hub at its declared route pattern and says whether the endpoint accepts
+    ///     SignalR's stateful reconnect (ASP.NET Core 8+). The overload without the parameter leaves it off.
+    /// </summary>
+    /// <remarks>
+    ///     Stateful reconnect lets a client that lost its network for a moment resume the SAME connection: the
+    ///     connection id stays, <c>OnDisconnectedAsync</c> / <c>OnConnectedAsync</c> do not run, and both sides replay
+    ///     what the other missed from a buffer. It only happens for a client that asks for it
+    ///     (<c>G9DtClientConnectionOptions.UseStatefulReconnect</c>, or <c>WithStatefulReconnect()</c> on a raw
+    ///     builder); every other client of the endpoint is unaffected. The server keeps a buffer per such connection —
+    ///     size it with <see cref="AddG9SignalRSuperNetCoreStatefulReconnect"/>.
+    /// </remarks>
+    /// <param name="app">The endpoint route builder.</param>
+    /// <param name="routePattern">The route the hub is mapped at.</param>
+    /// <param name="allowStatefulReconnects">Sets <see cref="HttpConnectionDispatcherOptions.AllowStatefulReconnects"/>.</param>
+    /// <param name="configureHub">An optional callback to customize the endpoint; it runs last, so it can still override the flag.</param>
+    public static IEndpointConventionBuilder AddSignalRSuperNetCoreServerHub<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicMethods)]
+        TTargetClass, TClientSideMethodsInterface>(
+        this IEndpointRouteBuilder app,
+        string routePattern,
+        bool allowStatefulReconnects,
+        Action<HttpConnectionDispatcherOptions>? configureHub = null)
+        where TTargetClass : G9AHubBase<TTargetClass, TClientSideMethodsInterface>
+        where TClientSideMethodsInterface : class
+    {
+        return app.AddSignalRSuperNetCoreServerHub<TTargetClass, TClientSideMethodsInterface>(routePattern, options =>
+        {
+            options.AllowStatefulReconnects = allowStatefulReconnects;
+            configureHub?.Invoke(options);
+        });
+    }
+
+    /// <summary>
     ///     Maps a JWT-protected SignalR hub. Registers both the auth route and the protected hub route,
     ///     stores the route's authentication delegate, and applies the route's
     ///     <see cref="TokenValidationParameters"/>.
@@ -304,6 +389,34 @@ public static class G9SignalRSuperNetCoreServer
         app.MapHub<G9GetJwtHub>(authRoutePattern, options => configureAuthHub?.Invoke(options));
         app.MapHub<TTargetClass>(hubRoutePattern, options => configureHub?.Invoke(options))
             .RequireAuthorization();
+    }
+
+    /// <summary>
+    ///     Maps a JWT-protected SignalR hub like the overload without <paramref name="allowStatefulReconnects"/>, and
+    ///     says whether the PROTECTED hub's endpoint accepts SignalR's stateful reconnect (see
+    ///     <see cref="AddSignalRSuperNetCoreServerHub{TTargetClass,TClientSideMethodsInterface}(IEndpointRouteBuilder,string,bool,Action{HttpConnectionDispatcherOptions})"/>).
+    ///     The auth route is a connection that lives for one call, so the flag is not applied to it.
+    /// </summary>
+    public static void AddSignalRSuperNetCoreJwtHub<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicMethods)]
+        TTargetClass, TClientSideMethodsInterface>(
+        this IEndpointRouteBuilder app,
+        string hubRoutePattern,
+        string authRoutePattern,
+        Func<object, Hub, Task<(G9JWTokenFactory, object?)>> authenticate,
+        bool allowStatefulReconnects,
+        Action<HttpConnectionDispatcherOptions>? configureHub = null,
+        Action<HttpConnectionDispatcherOptions>? configureAuthHub = null)
+        where TTargetClass : G9AHubBaseWithJWTAuth<TTargetClass, TClientSideMethodsInterface>
+        where TClientSideMethodsInterface : class
+    {
+        app.AddSignalRSuperNetCoreJwtHub<TTargetClass, TClientSideMethodsInterface>(hubRoutePattern, authRoutePattern, authenticate,
+            options =>
+            {
+                options.AllowStatefulReconnects = allowStatefulReconnects;
+                configureHub?.Invoke(options);
+            },
+            configureAuthHub);
     }
 
     /// <summary>

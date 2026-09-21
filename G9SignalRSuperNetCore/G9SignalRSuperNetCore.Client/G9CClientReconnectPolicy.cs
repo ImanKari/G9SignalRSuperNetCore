@@ -46,7 +46,6 @@ public sealed class G9CClientReconnectPolicy : IRetryPolicy
         if (factor < 1) throw new ArgumentOutOfRangeException(nameof(factor));
         if (maxDelay < baseDelay) throw new ArgumentOutOfRangeException(nameof(maxDelay));
 
-        var jitter = new Random();
         _delayer = ctx =>
         {
             if (maxElapsed != Timeout.InfiniteTimeSpan && ctx.ElapsedTime >= maxElapsed)
@@ -55,10 +54,32 @@ public sealed class G9CClientReconnectPolicy : IRetryPolicy
             var raw = baseDelay.TotalMilliseconds * Math.Pow(factor, ctx.PreviousRetryCount);
             var clamped = Math.Min(raw, maxDelay.TotalMilliseconds);
             // ±15% jitter so coordinated failures don't cause a thundering herd.
-            var jitterFactor = 0.85 + jitter.NextDouble() * 0.30;
+            var jitterFactor = 0.85 + NextJitterSample() * 0.30;
             return TimeSpan.FromMilliseconds(clamped * jitterFactor);
         };
     }
+
+#if NET6_0_OR_GREATER
+    /// <summary>
+    ///     A sample in [0, 1). One policy instance may serve several connections, and SignalR asks for the next
+    ///     delay on whichever thread the reconnect loop runs, so the source must be thread-safe:
+    ///     <see cref="Random.Shared"/> is. A plain <see cref="Random"/> is not — used concurrently it can corrupt
+    ///     its state and return 0 from then on, which silently removes the jitter.
+    /// </summary>
+    private static double NextJitterSample() => Random.Shared.NextDouble();
+#else
+    private static readonly Random Jitter = new Random();
+
+    /// <summary>
+    ///     A sample in [0, 1). netstandard2.1 has no <c>Random.Shared</c>, so one <see cref="Random"/> is guarded by
+    ///     a lock: used concurrently without one it can corrupt its state and return 0 from then on, which
+    ///     silently removes the jitter. The lock is uncontended in practice (one sample per reconnect attempt).
+    /// </summary>
+    private static double NextJitterSample()
+    {
+        lock (Jitter) return Jitter.NextDouble();
+    }
+#endif
 
     private G9CClientReconnectPolicy(Func<RetryContext, TimeSpan?> delayer) => _delayer = delayer;
 

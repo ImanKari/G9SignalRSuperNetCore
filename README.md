@@ -19,6 +19,7 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ## Table of contents
 
 - [What's new](#whats-new)
+  - [2.8 — Stateful reconnect and WebSockets-first (opt-in), thread-safe reconnect jitter, tagged releases](#28--stateful-reconnect-and-websockets-first-opt-in-thread-safe-reconnect-jitter-tagged-releases)
   - [2.7 — Awaited calls really wait, and four correctness fixes from an external review](#27--awaited-calls-really-wait-and-four-correctness-fixes-from-an-external-review)
   - [2.6 — MessagePack hub protocol (opt-in), generated-client and registration fixes](#26--messagepack-hub-protocol-opt-in-generated-client-and-registration-fixes)
   - [2.5.3 — Client multi-targets netstandard2.1 (Unity)](#253--client-multi-targets-netstandard21-unity)
@@ -65,6 +66,45 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ---
 
 ## What's new
+
+### 2.8 — Stateful reconnect and WebSockets-first (opt-in), thread-safe reconnect jitter, tagged releases
+
+Five items: one fix, one dependency alignment, two features and one release-process change. Both features are opt-in and **off by default**: a client and a server that turn nothing on build, connect and reconnect exactly as they did in 2.7.0 (a test pins that down — one negotiate request, WebSockets, the same two lifecycle events). **Source change:** none.
+
+**Fixed — the reconnect jitter is thread-safe.** `G9CClientReconnectPolicy` drew its ±15% jitter from one `new Random()` captured in a closure. `System.Random` is not thread-safe, and one policy instance may serve several connections, each asking for its next delay from its own reconnect loop. Shared like that, a `Random` hands racing callers the same samples, and its state can be corrupted so that it returns 0 from then on (the well-known failure of the older generator, which netstandard2.1 runtimes still use). A jitter sample that is always 0 means every client retries at exactly 85% of the nominal delay, in step, which is the thundering herd the jitter exists to prevent. The policy now draws from `Random.Shared` on net10.0 and from a `Random` behind a lock on netstandard2.1. The new test asks one policy for 200,000 delays from each of 2 × cores threads: against the 2.7.0 policy a thread saw as few as 640 distinct delays in its last 1,000, now 999 or 1,000, all inside the band.
+
+**Changed — `Microsoft.Extensions.Http.Resilience` 9.10.0 → 10.0.0** (net10.0 build of the client; the netstandard2.1 build never referenced it). It was the one 9.x reference among 10.x packages. It cannot simply go: the public `G9CHttpResilience` is built on it (`ResilienceHandler`, and Polly's `ResiliencePipeline<T>` in its signatures), so removing it, or moving that class to a package of its own, breaks callers and belongs in a major version. 10.0.0 is the *floor* of the 10.x line on purpose. A package dependency is a minimum, its own `Microsoft.Extensions.*` needs (10.0.0) stay below what `Microsoft.AspNetCore.SignalR.Client` 10.0.8 already brings, and an app that references a newer one wins.
+
+**Added — stateful reconnect, opt-in on both sides.** ASP.NET Core 8 taught SignalR to *resume* a connection after a short network break instead of replacing it: both sides buffer what they sent, the client reconnects the transport under the same connection id, and each side replays what the other missed. Nothing is lost and the hub sees no disconnect. The library now exposes it on both ends, on net10.0 **and** netstandard2.1 (`WithStatefulReconnect()` exists in SignalR.Client 8.0.11 too):
+
+```csharp
+// Server — allow it on the endpoint; the overload without the flag leaves it off
+app.AddSignalRSuperNetCoreServerHub<ChatHub, IChatClient>(ChatHub.Route, allowStatefulReconnects: true);
+// (AddSignalRSuperNetCoreJwtHub has the same parameter; it applies to the protected hub, not the auth route)
+
+// Optional: the server's replay buffer PER CONNECTION, in bytes (SignalR's default is 100,000)
+builder.Services.AddG9SignalRSuperNetCoreStatefulReconnect(bufferSizeBytes: 256 * 1024);
+
+// Client — ask for it (a generated client is partial, so this goes in your part of it)
+public partial class ChatHubClient
+{
+    protected override void ConfigureConnectionOptions(G9DtClientConnectionOptions options) =>
+        options.UseStatefulReconnect = true;
+}
+```
+
+It happens only when both sides opted in; otherwise the connection is an ordinary one. The tests cut the TCP connections underneath a live client, over JSON and over MessagePack. With the option, a call issued into the break is answered, the connection id is the same on both sides afterwards, and the client reports no `Reconnecting` / `Reconnected` / `Disconnected` at all. Without it, the same cut gives `Reconnecting` → `Reconnected` and a new connection id. One thing found on the way: SignalR seeds a hub's own `HubOptions<THub>` from the global `HubOptions` member by member and leaves `StatefulReconnectBufferSize` out, so a hub with per-hub options (`AddG9SignalRSuperNetCoreGroups<THub>` creates them) would silently keep the default. `AddG9SignalRSuperNetCoreStatefulReconnect` carries the value over; a hub that was given a size of its own keeps it. See [Stateful reconnect (opt-in)](#stateful-reconnect-opt-in).
+
+**Added — WebSockets first, with a fallback to negotiation.** `options.WebSocketsFirst = true` connects straight over WebSockets without the negotiate request — one round trip less, and no sticky sessions needed behind a load balancer. Skipping negotiation is normally all-or-nothing: where WebSockets are blocked, the connect just fails. Here, a failed first attempt is answered by one more attempt, in the same `ConnectAsync`, with ordinary negotiation over every transport; `StateChanged` reports it as the new `G9EConnectionPhase.TransportFallback` with the first failure as detail.
+
+- **It does not rebuild the connection.** SignalR copies its `HttpConnectionOptions` every time it opens a transport, so the fallback switches `SkipNegotiation` / `Transports` on the options the connection already reads. `client.Connection` stays the same instance: handlers registered on it with `On<T>()`, its timeouts, and a `G9CFileUploader` holding it all survive. A test asserts exactly that.
+- **Not every failure falls back.** A 401 / 403 does not — the second attempt would present the same credentials (the test counts the requests: one, and no negotiate). Neither does a refusal by the hub itself (a `HubException` from the handshake: the transport worked), a cancellation by the caller, or a connection that is disposed or already being started.
+- If the second attempt fails too, its exception is the one thrown — the same one a client without the option throws.
+- Stateful reconnect is agreed during negotiation, so a connection that skips negotiation does not get it (a test documents that). With both options on, stateful reconnect wins and the client negotiates.
+
+See [WebSockets first, with a safe fallback (opt-in)](#websockets-first-with-a-safe-fallback-opt-in) for what it does *not* cover (SignalR's own automatic-reconnect loop).
+
+**Added — releases are tagged.** Neither the repository nor the mirror carried a single tag, so there was no way to get from a package version back to its commit. After the tests and all four package pushes have succeeded, and only on `main`, the pipeline now creates the annotated tag `v<version>` on the released commit and pushes it; the GitHub sync then carries the tags to the mirror. An existing tag is never moved, and a tagging problem is a warning, never a failed release — the packages are already public by then. The build service identity needs one permission for it; see [Releases](#releases).
 
 ### 2.7 — Awaited calls really wait, and four correctness fixes from an external review
 
@@ -882,6 +922,63 @@ public sealed class MyClient(string url) : ChatHubClient(url)
 
 Automatic reconnect (`WithAutomaticReconnect()`) is enabled by default and the server timeout is 60 seconds. Both can be customized through the `customConfigureBuilder` and `configureHttpConnection` constructor parameters of the generated client.
 
+### Opt-in connection behaviours (`ConfigureConnectionOptions`)
+
+Two behaviours are off unless the client turns them on (2.8+): [stateful reconnect](#stateful-reconnect-opt-in) and [WebSockets first](#websockets-first-with-a-safe-fallback-opt-in). Both are set in one place, a virtual hook next to `RegisterListenerMethods()`:
+
+```csharp
+public partial class ChatHubClient   // the generated client is partial; a hand-written client overrides it the same way
+{
+    protected override void ConfigureConnectionOptions(G9DtClientConnectionOptions options)
+    {
+        options.UseStatefulReconnect = true;   // or: options.WebSocketsFirst = true;
+    }
+}
+```
+
+The base class calls it every time it builds the connection, before your `customConfigureBuilder` callback. For a client that passes its URL to the base constructor — every generated non-JWT client — that is *inside the base constructor*, before your constructor body runs, exactly like `RegisterListenerMethods()`. Read constants, statics or field initializers there, not fields your constructor assigns. A client that builds its connection later (the JWT client does, on `ConnectAsync`; so does a hand-written client that calls `PrepareConnection` from its own constructor) can read its own fields.
+
+### Stateful reconnect (opt-in)
+
+With an ordinary connection, a network break of a second costs the connection: SignalR's automatic reconnect opens a *new* one with a new connection id, the hub runs `OnDisconnectedAsync` and `OnConnectedAsync`, and whatever was in flight is gone. With stateful reconnect (ASP.NET Core 8+), both sides buffer what they sent, the client reconnects the transport under the *same* connection id, and each replays what the other missed.
+
+| Side | Turn it on |
+|---|---|
+| Server endpoint | `app.AddSignalRSuperNetCoreServerHub<THub, TClient>(route, allowStatefulReconnects: true)` — also on `AddSignalRSuperNetCoreJwtHub` (protected hub only) |
+| Server buffer (optional) | `services.AddG9SignalRSuperNetCoreStatefulReconnect(bufferSizeBytes)` — per connection; SignalR's default is 100,000 |
+| Client | `options.UseStatefulReconnect = true` in `ConfigureConnectionOptions`; optional `options.StatefulReconnectBufferSize` |
+
+- It happens only when **both** sides opted in. A client that asks on an endpoint that does not allow it, or the other way round, gets an ordinary connection.
+- It works over JSON and over MessagePack, and on both client targets (net10.0 and netstandard2.1).
+- The buffers are memory: the server keeps up to `bufferSizeBytes` *per connection that negotiated it*, and stops sending on a connection whose buffer is full until the client acknowledges. Size it for your message sizes, and multiply by your connection count.
+- A resumed connection fires **no** `Reconnecting` / `Reconnected` on the client and no `OnDisconnectedAsync` on the hub. Code that re-subscribes or re-sends state on `Reconnected` simply does not run — which is the point, but check that nothing depends on it as a heartbeat.
+- It covers a break, not an outage: the client retries the transport at once and the server keeps a broken connection for seconds, not minutes. Anything longer falls through to the ordinary automatic reconnect with a new connection id, as before.
+- It is agreed in the negotiate response, so it cannot be combined with skipping negotiation: with `WebSocketsFirst` also on, stateful reconnect wins and the client negotiates.
+
+### WebSockets first, with a safe fallback (opt-in)
+
+```csharp
+protected override void ConfigureConnectionOptions(G9DtClientConnectionOptions options) =>
+    options.WebSocketsFirst = true;
+```
+
+`ConnectAsync` then opens a WebSocket directly, without the negotiate request: one round trip less on every connect, and no sticky sessions needed when the server runs behind a load balancer. What normally makes `SkipNegotiation` risky is that it is all-or-nothing — on a network or proxy that blocks WebSockets the connect fails and nothing else is tried. Here the same `ConnectAsync` call tries once more with ordinary negotiation and the transports your `configureHttpConnection` callback left in place (all of them unless you narrowed them).
+
+| First attempt fails with | Second attempt? |
+|---|---|
+| Refused or broken WebSocket upgrade (404/400/502 instead of 101, connection reset, handshake timeout, no WebSocket support on the platform) | **Yes**, with negotiation |
+| 401 / 403 | No — the same credentials would be refused again |
+| `HubException` from the hub handshake (e.g. a protocol the server does not offer) | No — the transport worked |
+| Cancellation through the caller's token | No |
+| The connection is disposed, or someone else is already starting it | No |
+
+- `StateChanged` reports `Connecting` → `TransportFallback` (detail: the first failure) → `Connected` or `ConnectFailed`. If the second attempt fails too, **its** exception is thrown: the one a client without the option would have thrown.
+- **The connection is not rebuilt.** The fallback switches `SkipNegotiation` and `Transports` on the `HttpConnectionOptions` the connection already has (SignalR copies them each time it opens a transport). `client.Connection` is the same instance before and after, so handlers you registered on it directly, `ServerTimeout` / `KeepAliveInterval`, and a `G9CFileUploader` built on it all survive.
+- Every `ConnectAsync` starts with WebSockets again. A fallback caused by an outage, or by the network the device happened to be on, does not pin the client to negotiation.
+- **What it does not cover:** SignalR's automatic-reconnect loop is its own and connects with the settings the connection settled on — direct WebSockets when that worked, negotiation after a fallback. A device that connected over WebSockets and then moves to a network that blocks them keeps failing its automatic reconnects until the reconnect budget is spent (5 minutes by default); the next `ConnectAsync` then falls back. If that matters more to you than the saved round trip, leave the option off: negotiation tries WebSockets first anyway.
+- A 401 / 403 on a WebSocket upgrade is recognised from the exception message (`… status code '401' …`) because the client WebSocket exposes no status property there; on a runtime that words it differently, an authentication failure costs one extra (refused) negotiate request and then fails as before.
+- With `UseStatefulReconnect` also on, this option is ignored (see above).
+
 ### Connection access
 
 If you need to drop down to raw SignalR APIs, the underlying `HubConnection` is exposed via `client.Connection`:
@@ -1183,6 +1280,8 @@ var conn = new HubConnectionBuilder()
 
 Pass `Timeout.InfiniteTimeSpan` for `maxElapsed` to retry forever.
 
+One policy instance can be shared by any number of connections: the jitter source is thread-safe from 2.8.0 (`Random.Shared` on net10.0, a locked `Random` on netstandard2.1).
+
 ## MessagePack hub protocol (opt-in)
 
 Use it when payloads are large or binary: file transfer, sync pages, encrypted envelopes. The JSON protocol base64-encodes `byte[]` (+33%) and parses text. MessagePack sends bytes as bytes.
@@ -1391,6 +1490,7 @@ The library is designed for high-concurrency hubs. Specifically:
 - **Token bucket is wait-free in the uncontended case.** State is encoded in a single 64-bit field and updated through `Interlocked.CompareExchange` with bounded retry. No locks, no allocations on the hot path.
 - **Connection counter cells are reference-counted.** A cell is removed from the dictionary only when its counter falls back to zero, so the dictionary doesn't grow unboundedly under churn.
 - **File-upload writes are serialized per `uploadId`** through a `SemaphoreSlim`. Two racing append calls for the same upload never interleave bytes; two calls for *different* uploads run in parallel.
+- **`G9CClientReconnectPolicy` is shareable.** `NextRetryDelay` may be called from any number of reconnect loops at once; from 2.8.0 its jitter comes from a thread-safe source, so the ±15% band holds under contention.
 
 Custom fields you add to your `TSession` subclass are NOT automatically thread-safe. Synchronize them yourself with `Interlocked` or a lock.
 
@@ -1434,11 +1534,27 @@ dotnet test G9SignalRSuperNetCore/G9SignalRSuperNetCore.Tests -c Release
 # Run the sample web server
 dotnet run --project G9SignalRSuperNetCore/G9SignalRSuperNetCore.WebServer -c Release
 
-# Run the Consolonia console test harness (in another terminal; add -- --messagepack for the binary protocol)
+# Run the Consolonia console test harness (in another terminal; add -- --messagepack for the binary protocol,
+# and --stateful-reconnect / --websockets-first after the same -- for the 2.8 connection options)
 dotnet run --project G9SignalRSuperNetCore/G9SignalRSuperNetCore.ConsoleClient -c Release
 ```
 
 The Release build is warning-clean across all nine projects. CI runs through `azure-pipelines.yml` on `main`. It builds, runs the tests, and only then publishes the four NuGet packages.
+
+### Releases
+
+A release is a version bump: set `<G9PackageVersion>` in `G9SignalRSuperNetCore/Directory.Build.props` (the one coordinate all four packages and the embedded generator are built from), add the entry under [What's new](#whats-new), and push to `main`. The pipeline does the rest, in this order:
+
+1. build, then the tests;
+2. push the four packages to nuget.org (`--skip-duplicate`, so re-running a version that is already there is harmless);
+3. **tag the released commit** `v<version>` (2.8+), an annotated tag, e.g. `v2.8.0`;
+4. sync the repository, tags included, to the GitHub mirror.
+
+The tag step runs only on `main` and only when everything before it succeeded, so a tag always names a commit whose packages are on NuGet. It reads the version from `Directory.Build.props` and checks that each package glob holds a `.nupkg` of exactly that version before tagging. A tag that already exists is left where it is — tags are never moved. A tagging problem is reported as a warning and the run ends as *succeeded with issues*: by then the packages are public, and a red release would say the opposite.
+
+**One-time setup — the build service identity needs the "Create tag" permission.** The tag is pushed with the pipeline's own token (`System.AccessToken`), not with a personal access token. In Azure DevOps: *Project settings → Repositories → G9SignalRSuperNetCore → Security*, select **`<project name> Build Service (<organization>)`** (or *Project Collection Build Service* if the pipeline runs with collection scope) and set **Create tag** to **Allow**. Without it the push is refused (`TF401027 … needs 'CreateTag'`), the step logs a warning that says so, and the release itself is unaffected. The mirror needs nothing new: the tags travel with the sync step's existing GitHub credentials.
+
+Releases before 2.8.0 were not tagged. To tag one by hand: `git tag -a v2.7.0 <commit> -m "Release 2.7.0"` and `git push origin v2.7.0`.
 
 ## Project layout
 
@@ -1464,6 +1580,8 @@ G9SignalRSuperNetCore/
 ├── G9SignalRSuperNetCore.Client/                           # NuGet: client library
 │   ├── G9SignalRSuperNetCoreClient.cs                      # AOT-safe base (no Castle)
 │   ├── G9SignalRSuperNetCoreClientWithJWTAuth.cs           # adds AuthorizeAsync flow
+│   ├── G9DtClientConnectionOptions.cs                      # opt-in: stateful reconnect, WebSockets first (2.8)
+│   ├── G9CClientReconnectPolicy.cs                         # jittered backoff for automatic reconnect
 │   └── FileUpload/                                         # G9CFileUploader + DTOs + options
 ├── G9SignalRSuperNetCore.SourceGenerator/                  # Roslyn IIncrementalGenerator
 │   ├── G9HubClientGenerator.cs                             # generator entry point
@@ -1483,6 +1601,16 @@ G9SignalRSuperNetCore/
 ---
 
 ## Migration guide
+
+### 2.7 → 2.8
+
+2.8 is **additive**; nothing changes until you opt in.
+
+1. **Nothing to change** for existing clients and servers. The new `ConfigureConnectionOptions` hook turns nothing on by default, and the new mapping overloads take an extra `bool`, so every existing call binds to the overload it bound to before.
+2. **`Microsoft.Extensions.Http.Resilience`** moves from 9.10.0 to 10.0.0 in the net10.0 client. If your app pins a 9.x version of it (or of a `Microsoft.Extensions.Resilience` / `Http.Diagnostics` package), NuGet reports a downgrade (NU1605): move the pin to 10.x. An app that already references 10.x is unaffected.
+3. **A new `G9EConnectionPhase.TransportFallback`** value exists (added last; the existing values keep their numbers). It is only ever reported by a client that turned `WebSocketsFirst` on. A `switch` over the enum with no default branch may get a compiler hint about the unhandled value.
+4. **A client class that starts its `HubConnection` itself** (instead of calling the base `ConnectAsync`) and wants `WebSocketsFirst` should call the new `StartConnectionAsync(cancellationToken)` instead of `Connection.StartAsync(...)`; that is where the fallback lives. The library's own JWT client already does.
+5. **Tagged releases** need one permission for the build service identity; see [Releases](#releases).
 
 ### 2.5 → 2.6
 
@@ -1605,6 +1733,10 @@ The 2.x line is shipped as a sequence of focused milestones.
   - `G9SignalRSuperNetCore.Server.MessagePack` / `.Client.MessagePack` — opt-in, AOT-safe binary hub protocol with the library's own type shapes built in.
   - Generated clients use the client-library file-transfer twins (server acknowledgements reach `G9CFileUploader` again); same-project hubs resolve `Route` constants.
   - Registration idempotent per service collection; test project run by CI before publishing.
+- **2.7 — Call semantics & review fixes (shipped).** See [2.7](#27--awaited-calls-really-wait-and-four-correctness-fixes-from-an-external-review).
+- **2.8 — Connection options (this release).**
+  - `G9DtClientConnectionOptions` through the `ConfigureConnectionOptions` hook: stateful reconnect (with `allowStatefulReconnects` on the server mapping helpers and `AddG9SignalRSuperNetCoreStatefulReconnect`), and WebSockets first with a fallback to negotiation that keeps the `HubConnection`.
+  - Thread-safe jitter in `G9CClientReconnectPolicy`; `Microsoft.Extensions.Http.Resilience` on the 10.x line; releases tagged `v<version>` by the pipeline.
 
 The order can shift in response to consumer feedback; track progress in the issues board.
 

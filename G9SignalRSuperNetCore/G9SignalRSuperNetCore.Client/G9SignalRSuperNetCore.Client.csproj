@@ -45,10 +45,14 @@
 		<None Include="..\..\README.md" Pack="true" PackagePath="" />
 	</ItemGroup>
 
-	<!-- net10: full feature set (resilience needs net8+). -->
+	<!-- net10: full feature set (resilience needs net8+).
+	     Http.Resilience is what the public G9CHttpResilience is built on (ResilienceHandler, and Polly's ResiliencePipeline<T>
+	     in its signatures), so it cannot go without breaking that API. It is on the 10.x line like everything else here, at
+	     the FLOOR of that line: a package dependency is a minimum, its Microsoft.Extensions.* needs (10.0.0) stay below what
+	     SignalR.Client 10.0.8 already brings, and an app that wants a newer one references it and wins. -->
 	<ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
 		<PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.8" />
-		<PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="9.10.0" />
+		<PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.0.0" />
 	</ItemGroup>
 
 	<!-- netstandard2.1: Unity 6-compatible surface. SignalR.Client 8.x ships a netstandard2.0 asset.
