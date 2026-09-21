@@ -1,5 +1,10 @@
+# The default branch of this repository is main. This said master, which does not exist here,
+# so no push has started a build since the rename - every release build had to be queued by
+# hand, which is exactly the step someone forgets (fixed 2026-09-21).
 trigger:
-- master
+  branches:
+    include:
+      - main
 
 pool:
   vmImage: 'windows-latest'
