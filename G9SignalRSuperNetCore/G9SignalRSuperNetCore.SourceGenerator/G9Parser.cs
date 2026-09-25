@@ -23,7 +23,10 @@ internal static class G9Parser
         "ConfigureHub", "ConfigureHubOption", "ConfigureHubForJWTRoute",
         "OnConnectedAsync", "OnDisconnectedAsync", "OnConnectedAsyncNext", "OnDisconnectedAsyncNext",
         "AuthenticateAndGenerateJwtTokenAsync", "IsUserConnected", "CleanupExpiredSessions",
-        "Dispose", "DisposeAsync"
+        "Dispose", "DisposeAsync",
+        // 2.9: the base-class round-trip probe. The base declaration carries [G9AttrExcludeFromClientGeneration], but an
+        // override in a hub does not inherit that attribute as far as Roslyn is concerned, so it is excluded by name too.
+        "G9Ping"
     };
 
     /// <summary>

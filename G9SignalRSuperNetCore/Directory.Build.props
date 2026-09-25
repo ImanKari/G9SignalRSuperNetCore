@@ -11,12 +11,18 @@
   -->
 
   <PropertyGroup>
-    <G9PackageVersion>2.8.0</G9PackageVersion>
+    <G9PackageVersion>2.9.0</G9PackageVersion>
 
     <!-- Inherited by every project under this folder. -->
     <Version>$(G9PackageVersion)</Version>
     <AssemblyVersion>$(G9PackageVersion)</AssemblyVersion>
     <FileVersion>$(G9PackageVersion)</FileVersion>
+
+    <!-- Package and assembly metadata (the license text is LICENSE.md in every package). -->
+    <Authors>Iman Kari</Authors>
+    <Company>G9TM</Company>
+    <Product>G9SignalRSuperNetCore</Product>
+    <Copyright>Copyright (c) 2024-present Iman Kari (G9TM)</Copyright>
   </PropertyGroup>
 
 </Project>

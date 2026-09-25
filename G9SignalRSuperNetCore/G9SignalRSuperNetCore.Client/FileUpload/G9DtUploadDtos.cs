@@ -17,6 +17,12 @@ public sealed class G9DtBeginUploadResult
 
     /// <summary>The server-side path of the already-committed file when <see cref="AlreadyCompleted"/> is true.</summary>
     public string? FinalPath { get; init; }
+
+    /// <summary>
+    ///     2.9: the committed file name relative to the server upload root when <see cref="AlreadyCompleted"/> is true
+    ///     (null from servers older than 2.9).
+    /// </summary>
+    public string? StoredFileName { get; init; }
 }
 
 /// <summary>Mirror of the server-side <c>G9DtUploadResult</c>.</summary>
@@ -33,6 +39,14 @@ public sealed class G9DtUploadResult
 
     /// <summary>Final on-disk path of the committed file (when <see cref="Status"/> is <see cref="G9EUploadStatus.Completed"/>).</summary>
     public string? FinalPath { get; init; }
+
+    /// <summary>
+    ///     2.9: the committed file name relative to the server upload root (when <see cref="Status"/> is
+    ///     <see cref="G9EUploadStatus.Completed"/>). Pass it to <c>G9CFileDownloader</c> to fetch the file back; it
+    ///     differs from the local file name when the server randomizes committed names or the name was taken.
+    ///     Null from servers older than 2.9.
+    /// </summary>
+    public string? StoredFileName { get; init; }
 
     /// <summary>Stable G9 error code when <see cref="Status"/> is <see cref="G9EUploadStatus.Failed"/>.</summary>
     public string? ErrorCode { get; init; }

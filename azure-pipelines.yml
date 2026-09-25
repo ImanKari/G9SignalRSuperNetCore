@@ -169,6 +169,17 @@ steps:
       projects: '${{ parameters.testProjects }}'
       arguments: '--configuration $(buildConfiguration)'
 
+# The TypeScript twin (js/, @g9/signalr-supernetcore-client) mirrors the .NET client under the parity rule (js/PARITY.md):
+# it is type-checked, tested and built before anything is published, so a release never leaves the two out of step.
+- task: NodeTool@0
+  displayName: Node.js 22 (TypeScript client)
+  inputs:
+    versionSpec: '22.x'
+
+- script: npm ci --no-audit --no-fund && npm run typecheck && npm test && npm run build
+  displayName: TypeScript client - typecheck, tests, build
+  workingDirectory: js
+
 # Validate and publish NuGet packages
 - ${{ each packagePath in parameters.nugetPackages }}:
   - task: PowerShell@2

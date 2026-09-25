@@ -2,7 +2,10 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
 using System.Security.Claims;
+using System.Threading.Channels;
 using G9SignalRSuperNetCore.Server.Classes.Attributes;
+using G9SignalRSuperNetCore.Server.Classes.Authorization;
+using G9SignalRSuperNetCore.Server.Classes.Connections;
 using G9SignalRSuperNetCore.Server.Classes.Crypto;
 using G9SignalRSuperNetCore.Server.Classes.Errors;
 using G9SignalRSuperNetCore.Server.Classes.Presence;
@@ -17,7 +20,8 @@ namespace G9SignalRSuperNetCore.Server.Classes.Filters;
 ///     Process-wide hub filter that enforces the G9 attribute set on every hub invocation:
 ///     <see cref="G9AttrConnectionLimitAttribute"/>, <see cref="G9AttrConnectionRequiredAttribute"/>,
 ///     <see cref="G9AttrRateLimitAttribute"/>, <see cref="G9AttrRequireRoleAttribute"/>,
-///     <see cref="G9AttrRequireClaimAttribute"/>, and <see cref="G9AttrTelemetryAttribute"/>.
+///     <see cref="G9AttrRequireClaimAttribute"/>, <see cref="G9AttrRequirePermissionAttribute"/> (2.9), and
+///     <see cref="G9AttrTelemetryAttribute"/>. It also keeps the optional <see cref="IG9UserConnectionIndex"/> current (2.9).
 /// </summary>
 /// <remarks>
 ///     <para>The filter is registered as a singleton through the SignalR options pipeline by
@@ -32,7 +36,15 @@ namespace G9SignalRSuperNetCore.Server.Classes.Filters;
 public sealed partial class G9CHubFilter : IHubFilter
 {
     private const int IdleSweepThreshold = 10_000;
+    private const string UserKeyPrefix = "u:";
+    private const string IpKeyPrefix = "ip:";
     private static readonly TimeSpan IdleSweepAfter = TimeSpan.FromHours(1);
+
+    /// <summary>Key under <see cref="HubCallerContext.Items"/> for the shared rate-limit keys a connection holds.</summary>
+    private static readonly object ScopeKeysItem = new();
+
+    /// <summary>The connection-limit counters this connection holds (released exactly once, never re-derived later).</summary>
+    private static readonly object LimitKeysItem = new();
 
     private readonly ConcurrentDictionary<MethodInfo, MethodMeta> _methodCache = new();
     // Keyed by connection FIRST so a disconnect drops that connection's buckets in one O(1) removal
@@ -40,6 +52,8 @@ public sealed partial class G9CHubFilter : IHubFilter
     private readonly ConcurrentDictionary<string, ConnectionBuckets> _buckets = new(StringComparer.Ordinal);
     private readonly G9CConnectionCounter _userConnections = new();
     private readonly G9CConnectionCounter _ipConnections = new();
+    // Live connections per user / per IP (2.9), so a user- or IP-scoped bucket is freed with the LAST connection sharing it.
+    private readonly G9CKeyRefCounter _scopeKeys = new();
     private readonly ILogger _logger;
 
     /// <summary>
@@ -86,14 +100,16 @@ public sealed partial class G9CHubFilter : IHubFilter
 
         // Authorization guards (role / claim).
         var user = context.Context.User;
-        if (meta.RequiredRoles is not null)
+        if (meta.RequiredRoleSets is not null)
         {
-            if (user is null || !meta.RequiredRoles.Any(user.IsInRole))
+            // Each set is "any one of these roles"; every set (class level, method level) must pass.
+            foreach (var roles in meta.RequiredRoleSets)
             {
+                if (user is not null && roles.Any(user.IsInRole)) continue;
                 G9CTelemetry.AuthorizationRejections.Add(1);
                 LogPolicyRejection(_logger, G9CErrorCodes.RoleRequired, context.HubMethodName,
                     context.Context.ConnectionId, context.Context.UserIdentifier,
-                    "requires role: " + string.Join(",", meta.RequiredRoles));
+                    "requires role: " + string.Join(",", roles));
                 throw new HubException(G9CErrorCodes.RoleRequired);
             }
         }
@@ -122,29 +138,54 @@ public sealed partial class G9CHubFilter : IHubFilter
             }
         }
 
-        // Rate limit (per connection + method).
+        // Application-defined permissions (2.9): method-level and class-level, all must be granted.
+        if (meta.RequiredPermissions is not null)
+        {
+            var handler = context.ServiceProvider.GetService<IG9HubPermissionHandler>();
+            if (handler is null)
+            {
+                // Fail closed: a permission that nobody can grant is not granted.
+                G9CTelemetry.AuthorizationRejections.Add(1);
+                LogPermissionHandlerMissing(_logger, context.HubMethodName,
+                    string.Join(",", meta.RequiredPermissions), context.Context.ConnectionId, null);
+                throw new HubException(G9CErrorCodes.PermissionRequired);
+            }
+
+            foreach (var permission in meta.RequiredPermissions)
+            {
+                if (await handler.IsAllowedAsync(context, permission).ConfigureAwait(false)) continue;
+
+                G9CTelemetry.AuthorizationRejections.Add(1);
+                LogPolicyRejection(_logger, G9CErrorCodes.PermissionRequired, context.HubMethodName,
+                    context.Context.ConnectionId, context.Context.UserIdentifier, "permission: " + permission);
+                throw new HubException(G9CErrorCodes.PermissionRequired);
+            }
+        }
+
+        // Rate limit (per method, and per connection / user / IP depending on the scope).
         if (meta.RateLimit is not null)
         {
             // Disconnect is what normally frees these; the sweep only covers a connection whose
             // disconnect never ran, and only once there are more than a healthy process would hold.
             if (_buckets.Count > IdleSweepThreshold) SweepIdleBuckets(IdleSweepAfter);
 
-            var perConnection = _buckets.GetOrAdd(context.Context.ConnectionId, static _ => new ConnectionBuckets());
-            perConnection.Touch();
-            var bucket = perConnection.Methods.GetOrAdd(context.HubMethodName,
+            var bucketOwner = BucketKey(meta.RateLimit.Scope, context.Context);
+            var perOwner = _buckets.GetOrAdd(bucketOwner, static _ => new ConnectionBuckets());
+            perOwner.Touch();
+            var bucket = perOwner.Methods.GetOrAdd(context.HubMethodName,
                 _ => new G9CTokenBucket(meta.RateLimit.PerSecond, meta.RateLimit.Burst));
             if (!bucket.TryAcquire())
             {
                 G9CTelemetry.RateLimitedInvocations.Add(1);
                 LogPolicyRejection(_logger, G9CErrorCodes.RateLimited, context.HubMethodName,
                     context.Context.ConnectionId, context.Context.UserIdentifier,
-                    $"limit {meta.RateLimit.PerSecond}/s burst {meta.RateLimit.Burst}");
+                    $"limit {meta.RateLimit.PerSecond}/s burst {meta.RateLimit.Burst} scope {meta.RateLimit.Scope}");
                 throw new HubException(G9CErrorCodes.RateLimited);
             }
         }
 
-        // Optional telemetry span.
-        if (meta.TelemetryName is not null)
+        // Optional telemetry span (2.9: sampled by G9AttrTelemetry.SampleRate).
+        if (meta.TelemetryName is not null && IsSampled(meta.TelemetrySampleRate))
         {
             var activity = G9CTelemetry.ActivitySource.StartActivity(meta.TelemetryName, ActivityKind.Server);
             activity?.SetTag("g9.connection_id", context.Context.ConnectionId);
@@ -158,8 +199,9 @@ public sealed partial class G9CHubFilter : IHubFilter
                 // so is the honest thing the filter can do: wrapping the stream would need the item type
                 // at runtime, and building it with MakeGenericType is not AOT-safe (T04). A hub that
                 // wants enumeration metrics wraps its own stream with G9CStreamTelemetry.Track<T>, where
-                // the type is known at compile time.
-                if (result is not null && IsAsyncEnumerable(result.GetType()))
+                // the type is known at compile time. Whether the method streams is read once, from its DECLARED
+                // return type (MethodMeta.IsStreaming), so no reflection over the runtime type is needed (IL2070).
+                if (meta.IsStreaming)
                 {
                     activity?.SetTag("g9.stream", true);
                     activity?.SetTag("g9.outcome", "stream_started");
@@ -196,31 +238,40 @@ public sealed partial class G9CHubFilter : IHubFilter
         var limit = hubType.GetCustomAttribute<G9AttrConnectionLimitAttribute>();
         if (limit is not null)
         {
-            var userId = context.Context.UserIdentifier;
-            var ip = context.Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString();
+            // Counted per hub type: every hub declares its own limits, and connections to one hub (plus those still in a
+            // reconnect window) must not use up another hub's slots.
+            var hubKey = hubType.FullName ?? hubType.Name;
+            var rawUser = context.Context.UserIdentifier;
+            var rawIp = RemoteIp(context.Context);
+            var userId = string.IsNullOrEmpty(rawUser) ? null : hubKey + "|" + rawUser;
+            var ip = string.IsNullOrEmpty(rawIp) ? null : hubKey + "|" + rawIp;
+            var countedUser = limit.PerUser > 0 && userId is not null;
+            var countedIp = limit.PerIp > 0 && ip is not null;
 
-            if (limit.PerUser > 0 && !string.IsNullOrEmpty(userId)
-                && !_userConnections.TryIncrement(userId, limit.PerUser))
+            if (countedUser && !_userConnections.TryIncrement(userId!, limit.PerUser))
             {
                 G9CTelemetry.ConnectionLimitRejections.Add(1);
-                LogConnectionRejection(_logger, hubType.Name, "per-user", userId, limit.PerUser, null);
+                LogConnectionRejection(_logger, hubType.Name, "per-user", rawUser!, limit.PerUser, null);
                 throw new HubException(G9CErrorCodes.ConnectionLimit);
             }
 
-            if (limit.PerIp > 0 && !string.IsNullOrEmpty(ip)
-                && !_ipConnections.TryIncrement(ip, limit.PerIp))
+            if (countedIp && !_ipConnections.TryIncrement(ip!, limit.PerIp))
             {
-                if (limit.PerUser > 0 && !string.IsNullOrEmpty(userId)) _userConnections.Decrement(userId);
+                if (countedUser) _userConnections.Decrement(userId!);
                 G9CTelemetry.ConnectionLimitRejections.Add(1);
-                LogConnectionRejection(_logger, hubType.Name, "per-ip", ip, limit.PerIp, null);
+                LogConnectionRejection(_logger, hubType.Name, "per-ip", rawIp!, limit.PerIp, null);
                 throw new HubException(G9CErrorCodes.ConnectionLimit);
             }
+
+            // Remember what was counted: on disconnect the HTTP context may already be disposed, and re-deriving the
+            // IP there failed (ObjectDisposedException) and leaked the counters until the address was locked out.
+            context.Context.Items[LimitKeysItem] = new LimitKeys(countedUser ? userId : null, countedIp ? ip : null);
         }
 
         // Bundle 3: presence tracking (opt-in via [G9AttrPresenceTracked]).
         if (hubType.GetCustomAttribute<G9AttrPresenceTrackedAttribute>() is not null)
         {
-            var tracker = context.Context.GetHttpContext()?.RequestServices.GetService<G9CPresenceTracker>();
+            var tracker = context.ServiceProvider.GetService<G9CPresenceTracker>();
             var key = context.Context.UserIdentifier ?? context.Context.ConnectionId;
             tracker?.OnConnected(key);
         }
@@ -229,57 +280,150 @@ public sealed partial class G9CHubFilter : IHubFilter
         // G9CAutoJoinFilter<THub> registered via AddG9SignalRSuperNetCoreGroups<THub>(). We don't
         // join here because doing so would require MakeGenericType, which isn't AOT-safe.
 
-        await next(context).ConfigureAwait(false);
+        // 2.9: count this connection towards its user / IP rate-limit scopes, and index it by user. Both happen BEFORE
+        // the hub's own OnConnectedAsync, so the hub already sees itself in the index.
+        var caller = context.Context;
+        var scopeKeys = new ScopeKeys(
+            string.IsNullOrEmpty(caller.UserIdentifier) ? null : UserKeyPrefix + caller.UserIdentifier,
+            RemoteIp(caller) is { } remoteIp ? IpKeyPrefix + remoteIp : null);
+        if (scopeKeys.User is not null) _scopeKeys.Acquire(scopeKeys.User);
+        if (scopeKeys.Ip is not null) _scopeKeys.Acquire(scopeKeys.Ip);
+        caller.Items[ScopeKeysItem] = scopeKeys;
+        var index = context.ServiceProvider.GetService<G9CUserConnectionIndex>();
+        index?.Add(caller);
+
+        try
+        {
+            await next(context).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The hub refused the connection. SignalR does not run OnDisconnectedAsync for a connection whose
+            // OnConnectedAsync threw, so what was registered above would otherwise never be released.
+            ReleaseScopeKey(scopeKeys.User);
+            ReleaseScopeKey(scopeKeys.Ip);
+            ReleaseConnectionLimits(caller);
+            caller.Items.Remove(ScopeKeysItem);
+            index?.Remove(caller.ConnectionId);
+            throw;
+        }
     }
 
     /// <inheritdoc />
     public async Task OnDisconnectedAsync(HubLifetimeContext context, Exception? exception, Func<HubLifetimeContext, Exception?, Task> next)
     {
         var hubType = context.Hub.GetType();
-        var limit = hubType.GetCustomAttribute<G9AttrConnectionLimitAttribute>();
-        if (limit is not null)
+        try
         {
-            var userId = context.Context.UserIdentifier;
-            var ip = context.Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString();
-            if (limit.PerUser > 0 && !string.IsNullOrEmpty(userId)) _userConnections.Decrement(userId);
-            if (limit.PerIp > 0 && !string.IsNullOrEmpty(ip)) _ipConnections.Decrement(ip);
-        }
+            // Never touch the HTTP context here: after an abrupt close its features are disposed.
+            ReleaseConnectionLimits(context.Context);
 
-        // Bundle 3: presence tracking (opt-in).
-        if (hubType.GetCustomAttribute<G9AttrPresenceTrackedAttribute>() is not null)
+            // Bundle 3: presence tracking (opt-in).
+            if (hubType.GetCustomAttribute<G9AttrPresenceTrackedAttribute>() is not null)
+            {
+                var tracker = context.ServiceProvider.GetService<G9CPresenceTracker>();
+                var key = context.Context.UserIdentifier ?? context.Context.ConnectionId;
+                tracker?.OnDisconnected(key);
+            }
+
+            // Rate-limit buckets are per connection and die with it. Without this the dictionary grew for
+            // the life of the process, one entry per historical connection that ever hit a limited method —
+            // which on mobile, where every tunnel change is a new connection, is a slow leak (T02).
+            _buckets.TryRemove(context.Context.ConnectionId, out _);
+
+            // 2.9: a user- or IP-scoped bucket is shared by every connection of that user / address and dies with the
+            // LAST of them; the connection also leaves the user index (before the hub's own OnDisconnectedAsync runs).
+            if (context.Context.Items.TryGetValue(ScopeKeysItem, out var held) && held is ScopeKeys keys)
+            {
+                ReleaseScopeKey(keys.User);
+                ReleaseScopeKey(keys.Ip);
+            }
+
+            context.ServiceProvider.GetService<G9CUserConnectionIndex>()?.Remove(context.Context.ConnectionId);
+
+            // Bundle 5: drop the cached session key (if any) so its bytes are zeroed.
+            var sealer = context.ServiceProvider.GetService<G9CSessionSealer>();
+            sealer?.DropSession(context.Context.ConnectionId);
+        }
+        catch (Exception ex)
         {
-            var tracker = context.Context.GetHttpContext()?.RequestServices.GetService<G9CPresenceTracker>();
-            var key = context.Context.UserIdentifier ?? context.Context.ConnectionId;
-            tracker?.OnDisconnected(key);
+            // Library bookkeeping must never skip the hub's own OnDisconnectedAsync (the application's cleanup).
+            _logger.LogWarning(ex, "G9 disconnect bookkeeping failed for {ConnectionId}", context.Context.ConnectionId);
         }
-
-        // Rate-limit buckets are per connection and die with it. Without this the dictionary grew for
-        // the life of the process, one entry per historical connection that ever hit a limited method —
-        // which on mobile, where every tunnel change is a new connection, is a slow leak (T02).
-        _buckets.TryRemove(context.Context.ConnectionId, out _);
-
-        // Bundle 5: drop the cached session key (if any) so its bytes are zeroed.
-        var sealer = context.Context.GetHttpContext()?.RequestServices.GetService<G9CSessionSealer>();
-        sealer?.DropSession(context.Context.ConnectionId);
 
         await next(context, exception).ConfigureAwait(false);
     }
 
-    /// <summary>Whether a hub method returned a stream, read from the instance's own type (no generic construction).</summary>
-    private static bool IsAsyncEnumerable(Type type)
+    /// <summary>
+    ///     Whether a hub method streams to the caller, decided from its DECLARED return type: <c>IAsyncEnumerable&lt;T&gt;</c>
+    ///     or <c>ChannelReader&lt;T&gt;</c>, bare or wrapped in <c>Task&lt;&gt;</c> / <c>ValueTask&lt;&gt;</c>. Only
+    ///     generic-definition checks are used, which the trimmer needs no annotations for (2.9, replaces a
+    ///     <c>GetInterfaces()</c> call on the runtime type that raised IL2070).
+    /// </summary>
+    private static bool IsStreamingReturnType(Type returnType)
     {
-        foreach (var contract in type.GetInterfaces())
+        var type = returnType;
+        if (type.IsGenericType)
         {
-            if (contract.IsGenericType && contract.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>)) return true;
+            var definition = type.GetGenericTypeDefinition();
+            if (definition == typeof(Task<>) || definition == typeof(ValueTask<>)) type = type.GetGenericArguments()[0];
         }
 
-        return false;
+        if (!type.IsGenericType) return false;
+        var streamDefinition = type.GetGenericTypeDefinition();
+        return streamDefinition == typeof(IAsyncEnumerable<>) || streamDefinition == typeof(ChannelReader<>);
+    }
+
+    /// <summary>Who owns the bucket for a call: the connection, <c>"u:" + user</c>, or <c>"ip:" + address</c>.</summary>
+    private static string BucketKey(G9ERateLimitScope scope, HubCallerContext caller)
+    {
+        switch (scope)
+        {
+            case G9ERateLimitScope.User:
+                var user = caller.UserIdentifier;
+                return string.IsNullOrEmpty(user) ? caller.ConnectionId : UserKeyPrefix + user;
+            case G9ERateLimitScope.Ip:
+                return RemoteIp(caller) is { } ip ? IpKeyPrefix + ip : caller.ConnectionId;
+            default:
+                return caller.ConnectionId;
+        }
+    }
+
+    private static string? RemoteIp(HubCallerContext caller)
+    {
+        try
+        {
+            return caller.GetHttpContext()?.Connection.RemoteIpAddress?.ToString();
+        }
+        catch (ObjectDisposedException)
+        {
+            return null; // the transport is already gone
+        }
+    }
+
+    /// <summary>Gives back the connection-limit counters recorded at connect (idempotent: the record is removed).</summary>
+    private void ReleaseConnectionLimits(HubCallerContext caller)
+    {
+        if (!caller.Items.TryGetValue(LimitKeysItem, out var held) || held is not LimitKeys keys) return;
+        caller.Items.Remove(LimitKeysItem);
+        if (keys.User is not null) _userConnections.Decrement(keys.User);
+        if (keys.Ip is not null) _ipConnections.Decrement(keys.Ip);
+    }
+
+    /// <summary>Uniform per-invocation sampling decision for a rate already clamped to [0, 1].</summary>
+    private static bool IsSampled(double rate) => rate >= 1.0 || (rate > 0.0 && Random.Shared.NextDouble() < rate);
+
+    /// <summary>Drops one live connection from a shared scope; the last one out frees the shared bucket.</summary>
+    private void ReleaseScopeKey(string? key)
+    {
+        if (key is not null && _scopeKeys.Release(key)) _buckets.TryRemove(key, out _);
     }
 
     /// <summary>
-    ///     Connections currently holding rate-limit buckets. It tracks the live connections that have
-    ///     called a rate-limited method, so it should sit at or below the active connection count; a
-    ///     number that climbs with total connections ever made would mean cleanup stopped working.
+    ///     Owners currently holding rate-limit buckets: live connections that called a connection-scoped limited
+    ///     method, plus users and IP addresses with a live connection that called a user- or IP-scoped one (2.9).
+    ///     It should sit at or below the active connection count; a number that climbs with total connections ever
+    ///     made would mean cleanup stopped working.
     /// </summary>
     public int TrackedRateLimitConnections => _buckets.Count;
 
@@ -302,18 +446,43 @@ public sealed partial class G9CHubFilter : IHubFilter
         {
             var rate = m.GetCustomAttribute<G9AttrRateLimitAttribute>();
             var requireConn = m.GetCustomAttribute<G9AttrConnectionRequiredAttribute>() is not null;
-            var roles = m.GetCustomAttributes<G9AttrRequireRoleAttribute>()
+            // Policy attributes apply from the method AND from its hub class (and the class's bases): an attribute on the
+            // class used to be read for permissions only, so a class-level role or claim check silently protected nothing.
+            var hubType = m.ReflectedType ?? m.DeclaringType;
+            // Roles: stacked roles on one member mean "any one of them"; a class-level set is a separate gate that must
+            // pass too (like [Authorize] on a controller and its action), so a broader method role never widens the class.
+            var methodRoles = m.GetCustomAttributes<G9AttrRequireRoleAttribute>()
                 .SelectMany(a => a.Roles).Distinct(StringComparer.Ordinal).ToArray();
+            var classRoles = (hubType?.GetCustomAttributes<G9AttrRequireRoleAttribute>(inherit: true) ?? [])
+                .SelectMany(a => a.Roles).Distinct(StringComparer.Ordinal).ToArray();
+            var roleSets = new[] { classRoles, methodRoles }.Where(set => set.Length > 0).ToArray();
+            // Claims: every attribute must hold, wherever it is declared.
             var claims = m.GetCustomAttributes<G9AttrRequireClaimAttribute>()
+                .Concat(hubType?.GetCustomAttributes<G9AttrRequireClaimAttribute>(inherit: true) ?? [])
                 .Select(a => (a.ClaimType, a.AcceptedValues)).ToArray();
-            var telemetry = m.GetCustomAttribute<G9AttrTelemetryAttribute>();
-            string? telemetryName = telemetry is null ? null : (telemetry.Name ?? $"{m.DeclaringType?.Name}.{m.Name}");
+            // 2.9: permissions from the method and from its hub class (and the class's bases); all must be granted.
+            var permissions = m.GetCustomAttributes<G9AttrRequirePermissionAttribute>()
+                .Concat(hubType is null
+                    ? Enumerable.Empty<G9AttrRequirePermissionAttribute>()
+                    : hubType.GetCustomAttributes<G9AttrRequirePermissionAttribute>(inherit: true))
+                .Select(a => a.Permission).Distinct(StringComparer.Ordinal).ToArray();
+            // Telemetry: the method's attribute wins; a class-level one traces every method (its Name becomes a prefix).
+            var methodTelemetry = m.GetCustomAttribute<G9AttrTelemetryAttribute>();
+            var telemetry = methodTelemetry ?? hubType?.GetCustomAttribute<G9AttrTelemetryAttribute>(inherit: true);
+            string? telemetryName = telemetry is null ? null
+                : methodTelemetry is not null ? (telemetry.Name ?? $"{m.DeclaringType?.Name}.{m.Name}")
+                : $"{telemetry.Name ?? hubType?.Name}.{m.Name}";
+            var sampleRate = telemetry?.SampleRate ?? 1.0;
+            sampleRate = double.IsNaN(sampleRate) ? 1.0 : Math.Clamp(sampleRate, 0.0, 1.0);
 
             return new MethodMeta(
                 rate, requireConn,
-                roles.Length > 0 ? roles : null,
+                roleSets.Length > 0 ? roleSets : null,
                 claims.Length > 0 ? claims : null,
-                telemetryName);
+                permissions.Length > 0 ? permissions : null,
+                telemetryName,
+                sampleRate,
+                IsStreamingReturnType(m.ReturnType));
         });
 
     /// <summary>One connection's rate-limit buckets, by method, with the last time it used any of them.</summary>
@@ -331,9 +500,17 @@ public sealed partial class G9CHubFilter : IHubFilter
     private sealed record MethodMeta(
         G9AttrRateLimitAttribute? RateLimit,
         bool RequireConnection,
-        string[]? RequiredRoles,
+        string[][]? RequiredRoleSets,
         (string Type, string[] Accepted)[]? RequiredClaims,
-        string? TelemetryName);
+        string[]? RequiredPermissions,
+        string? TelemetryName,
+        double TelemetrySampleRate,
+        bool IsStreaming);
+
+    /// <summary>The user / IP rate-limit scope keys a connection was counted under when it connected.</summary>
+    private sealed record ScopeKeys(string? User, string? Ip);
+
+    private sealed record LimitKeys(string? User, string? Ip);
 
     [LoggerMessage(
         EventId = 9100,
@@ -348,4 +525,11 @@ public sealed partial class G9CHubFilter : IHubFilter
         Message = "G9 connection-limit rejected connect: hub={Hub} dimension={Dimension} key={Key} limit={Limit}")]
     private static partial void LogConnectionRejection(
         ILogger logger, string hub, string dimension, string key, int limit, Exception? exception);
+
+    [LoggerMessage(
+        EventId = 9103,
+        Level = LogLevel.Warning,
+        Message = "G9 permission check refused hub invocation because no IG9HubPermissionHandler is registered: method={Method} permissions={Permissions} connectionId={ConnectionId}")]
+    private static partial void LogPermissionHandlerMissing(
+        ILogger logger, string method, string permissions, string connectionId, Exception? exception);
 }

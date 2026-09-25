@@ -78,5 +78,21 @@ public abstract class G9AHubBase<TTargetClass, [DynamicallyAccessedMembers(Dynam
     [G9AttrExcludeFromClientGeneration]
     public abstract string RoutePattern();
 
+    /// <summary>
+    ///     Round-trip probe (2.9): returns <paramref name="clientTimestamp"/> unchanged, so the caller can measure the
+    ///     round-trip time against its own clock. Used by the client library's <c>G9CConnectionQualityMonitor</c>.
+    /// </summary>
+    /// <param name="clientTimestamp">A timestamp from the caller's clock (milliseconds); echoed back as is.</param>
+    /// <returns><paramref name="clientTimestamp"/>.</returns>
+    /// <remarks>
+    ///     Callable by every client of the hub (it goes through the hub's own authorization, so a JWT hub still requires
+    ///     a token), rate limited to 2 calls a second with a burst of 5 per connection, and not emitted into generated
+    ///     typed clients (call it with <c>connection.InvokeAsync&lt;long&gt;("G9Ping", timestamp)</c>). Override it to add
+    ///     behaviour; keep the echo.
+    /// </remarks>
+    [G9AttrExcludeFromClientGeneration]
+    [G9AttrRateLimit(perSecond: 2, burst: 5)]
+    public virtual long G9Ping(long clientTimestamp) => clientTimestamp;
+
     #endregion
 }

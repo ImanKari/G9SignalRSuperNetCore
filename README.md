@@ -2,7 +2,7 @@
 
 [![NuGet — Server](https://img.shields.io/nuget/v/G9SignalRSuperNetCore.Server.svg?style=flat-square&label=Server)](https://www.nuget.org/packages/G9SignalRSuperNetCore.Server/)
 [![NuGet — Client](https://img.shields.io/nuget/v/G9SignalRSuperNetCore.Client.svg?style=flat-square&label=Client)](https://www.nuget.org/packages/G9SignalRSuperNetCore.Client/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/LICENSE.md)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
 [![AOT-safe](https://img.shields.io/badge/NativeAOT-ready-success?style=flat-square)](#maui-and-nativeaot-support)
 [![MAUI](https://img.shields.io/badge/MAUI-Android%20%7C%20iOS%20%7C%20Mac%20%7C%20Win-7160E8?style=flat-square)](#maui-and-nativeaot-support)
@@ -14,11 +14,14 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 
 > Drop reflection-based runtime proxies, get a build-time-generated typed client. Drop static per-process state, get a pluggable session store. Add `[G9AttrRateLimit]` to a method and you're rate-limited; add `[G9AttrTelemetry]` and you have OpenTelemetry traces. Keep the SignalR programming model you already know.
 
+**Current release: 2.9.0** — the four NuGet packages below, and the TypeScript twin `@g9/signalr-supernetcore-client` 2.9.0 for browser and Node front ends ([TypeScript client](#typescript-client-parity-rule)). See [What's new in 2.9](#29--scoped-rate-limits-auth-route-throttle-upload-ownership-permissions-connection-index-and-quality) and [2.8 → 2.9](#28--29).
+
 ---
 
 ## Table of contents
 
 - [What's new](#whats-new)
+  - [2.9 — Scoped rate limits, auth-route throttle, upload ownership, permissions, connection index and quality](#29--scoped-rate-limits-auth-route-throttle-upload-ownership-permissions-connection-index-and-quality)
   - [2.8 — Stateful reconnect and WebSockets-first (opt-in), thread-safe reconnect jitter, tagged releases](#28--stateful-reconnect-and-websockets-first-opt-in-thread-safe-reconnect-jitter-tagged-releases)
   - [2.7 — Awaited calls really wait, and four correctness fixes from an external review](#27--awaited-calls-really-wait-and-four-correctness-fixes-from-an-external-review)
   - [2.6 — MessagePack hub protocol (opt-in), generated-client and registration fixes](#26--messagepack-hub-protocol-opt-in-generated-client-and-registration-fixes)
@@ -42,6 +45,7 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 - [Pluggable session store](#pluggable-session-store)
 - [Auto-generated typed client](#auto-generated-typed-client)
 - [Client features](#client-features)
+- [TypeScript client (parity rule)](#typescript-client-parity-rule)
 - [Policy attributes](#policy-attributes)
 - [Resumable file upload](#resumable-file-upload)
 - [Resumable file download](#resumable-file-download)
@@ -66,6 +70,172 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ---
 
 ## What's new
+
+### 2.9 — Scoped rate limits, auth-route throttle, upload ownership, permissions, connection index and quality
+
+Fifteen items: six fixes and nine additions. Everything is additive: existing code compiles and binds to the same overloads, and the new features are opt-in. **One new default changes behaviour: the JWT authorize route is now throttled per IP address** (60 calls a minute, burst 20). A few other changes are visible without opting in: abandoned upload partials are now deleted (after 24 h), slow rate limits refill at the declared rate, connection limits are counted per hub, role/claim/telemetry attributes on a hub class now apply, and the .NET uploader waits for a reconnect instead of failing. [2.8 → 2.9](#28--29) lists each of these. **Source change:** none, unless a hub already declares a method named `G9Ping`.
+
+**Fixed — no trim warning in the hub filter (IL2070).** 2.7's stream-aware telemetry decided whether a method streamed by calling `GetInterfaces()` on the runtime type of its result. The trimmer cannot see through that, so the Release build of the server carried an IL2070 warning. The filter now decides once per method, from the *declared* return type: `IAsyncEnumerable<T>` or `ChannelReader<T>`, bare or wrapped in `Task<>` / `ValueTask<>`. It uses only generic-definition checks, which need no annotations. The telemetry tags are unchanged (`g9.stream`, `g9.outcome=stream_started`), `ChannelReader<T>` methods are now recognised too, and the Release build of all nine projects is warning-free again.
+
+**Fixed — class-level role, claim and telemetry attributes apply.** `[G9AttrRequireRole]`, `[G9AttrRequireClaim]` and `[G9AttrTelemetry]` compile on a hub class, but the filter read them from the method alone, so a class-level role check protected nothing. The filter now reads them from the class (and its bases) too: every class-level claim is required, a class-level role set is a gate of its own that must pass in addition to the method's roles (a broader method role never widens the class), and a class-level `[G9AttrTelemetry]` traces every method (its `Name` becomes a prefix; a method's own attribute wins).
+
+**Fixed — connection limits never leak slots.** `[G9AttrConnectionLimit]` counted a connection at connect and, at
+disconnect, read the remote IP again from the HTTP context. After an abrupt close that context is already disposed:
+the read threw `ObjectDisposedException`, neither counter was decremented, and the hub's own `OnDisconnectedAsync`
+was skipped. Every such drop leaked a slot until the user or address got `G9_CONNECTION_LIMIT` for good. The filter now
+records exactly which counters a connection took and gives them back exactly once, without touching the HTTP context;
+a connection the hub refuses (its `OnConnectedAsync` throws) gives its slots back too, and a failure in the library's
+disconnect bookkeeping is logged but never skips the hub's own handler.
+
+**Fixed — each hub counts its own connections.** The per-user and per-IP counters were shared by all hubs of the
+process, so connections to one hub used up another hub's limits (a member with a few tabs of the main hub could not
+enter a meeting hub declared with `perUser: 10`). Counters are now keyed by hub type.
+
+**Fixed — .NET uploader waits for the connection like the TypeScript twin.** `G9CFileUploader` starts (or resumes) an
+upload only once the connection is up again, within `ReconnectGrace`, instead of failing while it reconnects.
+
+**Fixed — slow rate limits refill at the rate you asked for.** The token bucket stored its refill rate as a whole number of fixed-point units per millisecond, with a floor of one. So anything below about 0.5 calls a second (`perSecond: 0.1`, or any per-minute limit) refilled at roughly one call a second. It also read its clock from system boot and compared 32-bit millisecond stamps without wrap-around, so on a machine that had been up for more than 49.7 days the limiter stopped limiting. The rate is now kept as a fraction, and only the time actually converted into tokens is consumed. The clock is process-relative and compared with wrap-around arithmetic.
+
+**Added — rate-limit scopes.** A per-connection limit can be multiplied by opening more connections. `Scope` shares one bucket between every connection of a user, or of an IP address:
+
+```csharp
+// 5 invites back to back, then one a second — per USER, however many tabs and devices they have open
+[G9AttrRateLimit(perSecond: 1, burst: 5, Scope = G9ERateLimitScope.User)]
+public Task SendInvite(string email) => …;
+
+// per remote IP address (configure forwarded headers behind a proxy)
+[G9AttrRateLimit(perSecond: 0.2, burst: 3, Scope = G9ERateLimitScope.Ip)]
+public Task RequestPasswordReset(string email) => …;
+```
+
+- `Connection` (the default) keeps the 2.8 behaviour. `User` keys the bucket by `Context.UserIdentifier` and `Ip` by the remote address. A connection without one falls back to its own per-connection bucket.
+- Buckets are still per method name, and a user or IP bucket is not per hub: two hubs with a user-scoped method of the same name share one bucket, with the limits of whichever call created it. Give such methods distinct names if they need separate allowances.
+- A shared bucket lives exactly as long as the connections that share it. The filter counts live connections per user and per address and frees the bucket when the **last** of them disconnects; the idle sweep remains the fallback. The tests check both halves: a user's second connection is refused once the first has spent the allowance, one of two connections leaving does not reset it, and a new connection after both have left starts full.
+
+**Added — the JWT authorize route is throttled per IP (on by default).** Clients could call `G9GetJwtHub.Authorize`, the route that checks credentials and issues tokens, as fast as they liked, which made it a password-guessing endpoint. Every call is now charged to the caller's IP address first. A caller over the allowance gets `IsAccepted = false` with `RejectionReason = "G9_RATE_LIMITED"`, your `authenticate` delegate is not called, and a warning is logged (event id 9102). The defaults are 60 calls a minute with a burst of 20 per address. Change or disable them with the new overload:
+
+```csharp
+builder.Services.AddSignalRSuperNetCoreJwt(ChatHub.HubRoute, ChatHub.TokenValidationParameters,
+    configureAuth: auth =>
+    {
+        auth.AuthorizePerMinutePerIp = 30;
+        auth.AuthorizeBurstPerIp     = 10;
+        // auth.ThrottleEnabled      = false;   // turn it off
+    });
+```
+
+On the client, `AuthorizeAsync` returns that result like any other rejection:
+
+```csharp
+var result = await client.AuthorizeAsync(credentials);
+if (!result.IsAccepted && result.RejectionReason == "G9_RATE_LIMITED")
+    ShowToast("Too many sign-in attempts. Try again in a minute.");
+```
+
+Calls with no known remote address (a non-TCP transport) are not throttled. Behind a reverse proxy, enable the forwarded-headers middleware; otherwise every client is throttled as the proxy.
+
+**Added — upload ownership: per-user namespaces, randomized committed names, an authorization hook, and a cleanup that actually runs.** Until now the upload service knew nothing about *who* was uploading. In 2.9 the hub can tell it, and the host decides what that owner may do:
+
+```csharp
+builder.Services.AddG9SignalRSuperNetCoreFileUpload(opt =>
+{
+    opt.RootDirectory           = Path.Combine(builder.Environment.ContentRootPath, "uploads");
+    opt.PerUserNamespace        = true;                     // partials are kept apart per owner
+    opt.RandomizeCommittedNames = true;                     // commit as {guid}{.ext}, never the client's name
+    opt.CleanupInterval         = TimeSpan.FromMinutes(10); // the default; null turns the sweep off
+    opt.Authorize = async (ctx, ct) => ctx.Operation switch
+    {
+        G9EUploadOperation.Begin  => ctx.OwnerId is not null && await quotas.HasRoomAsync(ctx.OwnerId, ctx.TotalBytes, ct),
+        G9EUploadOperation.Append => ctx.OwnerId is not null,
+        G9EUploadOperation.BeginDownload or G9EUploadOperation.Download
+                                  => ctx.OwnerId is not null && await files.CanReadAsync(ctx.OwnerId, ctx.FileName, ct),
+        _ => false
+    };
+});
+```
+
+```csharp
+// In the hub (Uploads is the IG9UploadService, injected): pass the owner. The old overloads still exist and mean ownerId: null.
+public Task<G9DtBeginUploadResult> BeginUpload(string uploadId, string fileName, long totalBytes, int chunkSize, string sha256) =>
+    Uploads.BeginAsync(Context.UserIdentifier, uploadId, fileName, totalBytes, chunkSize, sha256, Context.ConnectionAborted).AsTask();
+
+public Task<G9DtUploadResult> UploadChunks(string uploadId, IAsyncEnumerable<byte[]> chunks) =>
+    Uploads.AppendChunksAsync(Context.UserIdentifier, uploadId, chunks, onProgress: null, Context.ConnectionAborted).AsTask();
+```
+
+- **`PerUserNamespace`.** With an owner, a partial and its metadata are stored as `{owner}-{hash}__{uploadId}`. `{owner}` is the owner id with every character outside `[A-Za-z0-9-]` replaced by `-`, cut to 32 characters, and `{hash}` is 16 hex characters of the SHA-256 of the exact owner id. Two users can never resume, append to or collide with each other's uploads, even when their clients pick the same upload id. The hash is what separates owners such as `a.b` and `a-b`, which reduce to the same readable part. Uploads without an owner share one anonymous namespace.
+- **`RandomizeCommittedNames`.** The committed file is named `{32 hex}{extension}`, where the extension is the declared one lower-cased, reduced to `[a-z0-9.]` and cut to 16 characters. The client's file name never touches the disk; it stays in the upload metadata. Because a name no longer identifies content, `BeginAsync` skips its "already committed under this name" shortcut.
+- **`StoredFileName`.** A new property on `G9DtUploadResult` and `G9DtBeginUploadResult`, in the server DTOs and in their client twins. The member name is the same on both sides, so the wire stays compatible and a 2.8 client simply ignores it. It holds the committed name relative to `RootDirectory`, which is what you store and later pass to `BeginDownloadAsync`. It is set on every completed upload, randomized or not.
+- **`Authorize`.** Called before every operation with a `G9DtUploadAuthorizationContext(Operation, OwnerId, UploadId, FileName, TotalBytes)`. On append, `TotalBytes` comes from the upload's metadata. On downloads it is the file size and `UploadId` is empty. A refusal is `G9_UPLOAD_FORBIDDEN`: `BeginAsync`, `BeginDownloadAsync` and `StreamFileAsync` throw `InvalidOperationException` with that message, and `AppendChunksAsync` returns a `Failed` result with that `ErrorCode`. SignalR passes only a `HubException`'s message on to the client. To let clients see this code (and the other `G9_UPLOAD_*` codes that `BeginAsync` throws), rethrow it in the hub method: `catch (InvalidOperationException e) when (e.Message.StartsWith("G9_", StringComparison.Ordinal)) { throw new HubException(e.Message); }`.
+- **Owner-aware overloads on `IG9UploadService`.** `BeginAsync(ownerId, …)` and `AppendChunksAsync(ownerId, …)`, plus `BeginDownloadAsync(ownerId, …)` and `StreamFileAsync(ownerId, …)` so the hook sees who is downloading. The new overloads have default implementations that call the old ones and ignore the owner, so a custom `IG9UploadService` keeps compiling.
+- **The cleanup runs.** `CleanupExpiredPartials()` existed, but nothing called it, so abandoned partials stayed on disk for ever. `AddG9SignalRSuperNetCoreFileUpload` now registers the hosted `G9CUploadCleanupService`, which calls it every `CleanupInterval`. The sweep also treats a partial's `.bin` and `.meta` as one unit now. It judges them by the latest write to either file and deletes them together (the `.meta` only once the `.bin` is gone), and it skips an upload that is writing at that moment. Before, each file was judged alone, so a slow upload could lose its metadata while its `.bin` was still growing.
+
+On a multi-user server, turn on both `PerUserNamespace` and `RandomizeCommittedNames`. The namespace separates uploads in flight; random names stop committed files from being found, or refused, by name.
+
+**Added — `[G9AttrRequirePermission]`: application permissions, decided by your code.** Roles and claims come from the token, but many permissions live in a database. The new attribute names a permission and hands the decision to an `IG9HubPermissionHandler` that you register:
+
+```csharp
+[G9AttrRequirePermission("chat.use")]                  // class level: every method needs it
+public class ChatHub : G9AHubBase<ChatHub, IChatClient>
+{
+    [G9AttrRequirePermission("rooms.moderate")]        // method level: needed IN ADDITION
+    public Task Kick(string room, string user) => …;
+}
+
+public sealed class DbPermissionHandler(AppDb db) : IG9HubPermissionHandler
+{
+    public async ValueTask<bool> IsAllowedAsync(HubInvocationContext context, string permission) =>
+        context.Context.UserIdentifier is { } user && await db.HasPermissionAsync(user, permission);
+}
+
+builder.Services.AddScoped<IG9HubPermissionHandler, DbPermissionHandler>();
+```
+
+- The attribute stacks on methods and classes. Every permission on the method **and** on its hub class must be granted. It is checked after roles and claims and before the rate limit, so a refused call does not use up an allowance.
+- A class-level permission covers inherited hub methods too, including the built-in `G9Ping`, so a client needs it for the connection quality monitor to measure anything.
+- The handler is resolved per invocation from the invocation's scope, so it can be a scoped service.
+- A refusal is `HubException("G9_PERMISSION_REQUIRED")`, counted in `g9.signalr.authorization_rejections` and logged as event 9100. A method that requires a permission while **no** handler is registered is refused too (fail closed), with a warning (event 9103) that names the missing registration.
+
+**Added — `IG9UserConnectionIndex`: who is online, and a way to end a user's sessions.** Opt in with `builder.Services.AddG9SignalRSuperNetCoreConnectionIndex()`. The hub filter keeps it current for every hub.
+
+```csharp
+public sealed class AccountService(IG9UserConnectionIndex connections)
+{
+    public int SignOutEverywhere(string userId) => connections.AbortUser(userId);   // e.g. after a password change
+
+    public bool IsOnline(string userId) => connections.IsOnline(userId);
+}
+```
+
+It offers `GetConnections(userId)`, `Count(userId)`, `IsOnline(userId)`, `OnlineUsers()`, `AbortUser(userId)` (which returns how many connections it aborted) and `AbortConnection(connectionId)`. It holds each connection's `HubCallerContext`, so aborting works from anywhere, such as an admin endpoint or a background job. An aborted connection leaves the index once SignalR has processed its disconnect, shortly after the call. A connection is added before the hub's own `OnConnectedAsync` and removed before its `OnDisconnectedAsync`. Inside those methods, `Count(user) == 1` therefore means "first connection" and `!IsOnline(user)` means "last one gone". The index counts a user's connections to all hubs together. Connections without a user identifier are not indexed under any user; only `AbortConnection` reaches them. The index is lock-free and per process.
+
+**Added — `G9Ping` and `G9CConnectionQualityMonitor`.** Every hub that derives from the G9 bases now has `G9Ping(long) => long`, an echo for measuring round trips. It is rate-limited to 2 calls a second (burst 5) per connection and left out of generated typed clients. On the client, the monitor calls it at an interval and classifies the result:
+
+```csharp
+await using var quality = new G9CConnectionQualityMonitor(client.Connection);   // every 5 s by default
+quality.QualityChanged += q => Dispatcher.Post(() =>
+    StatusDot.Fill = q.Level switch
+    {
+        G9EConnectionQualityLevel.Good => Brushes.Green,     // < 150 ms
+        G9EConnectionQualityLevel.Fair => Brushes.Orange,    // < 400 ms
+        G9EConnectionQualityLevel.Poor => Brushes.Red,       // ≥ 400 ms, or one failed probe
+        _                              => Brushes.Gray       // Lost: 3 failed probes in a row, or not connected
+    });
+quality.Start();
+```
+
+`Current` holds the latest `G9DtConnectionQuality(RttMs, Level, MeasuredUtc)`; `RttMs` is `-1` when there is no measurement. `QualityChanged` fires only when the level changes. A `Reconnecting` or `Closed` event is reported as `Lost` at once, and `Reconnected` triggers a probe straight away. The monitor is available on net10.0 and on netstandard2.1 (Unity). Keep the interval at 500 ms or more because of the server's rate limit.
+
+**Added — `HubConnection.WaitUntilConnectedAsync(timeout)`.** It returns at once when the connection is `Connected`. Otherwise it waits for a reconnect (the `Reconnected` event, or a state poll at most every 100 ms) and throws `TimeoutException` when the time is up. Use it before sending after a network change, instead of failing the call while the automatic reconnect is still running:
+
+```csharp
+await client.Connection.WaitUntilConnectedAsync(TimeSpan.FromSeconds(10), ct);
+await client.Server.SendMessage(user, text);
+```
+
+**Added — telemetry sampling.** `[G9AttrTelemetry(SampleRate = 0.05)]` traces 5% of a hot method's calls instead of all of them. The rate runs from 0 to 1 (default 1), and the decision is a uniform random draw per call. Metrics are not sampled.
+
+**Added — the TypeScript twin is part of the contract.** A TypeScript client with the same features, `@g9/signalr-supernetcore-client` 2.9.0, lives in [`js/`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js) of this repository and is written separately. From 2.9, every change to the public surface of the .NET client must land in the TypeScript package in the same change, and the other way round. The release pipeline type-checks, tests and builds it before any NuGet package is pushed. See [TypeScript client (parity rule)](#typescript-client-parity-rule) for how to install it.
 
 ### 2.8 — Stateful reconnect and WebSockets-first (opt-in), thread-safe reconnect jitter, tagged releases
 
@@ -316,8 +486,9 @@ Plain ASP.NET Core SignalR is excellent, but most teams end up writing the same 
 - **Listener wiring with no reflection** — generated typed `Connection.On<...>` calls match your interface.
 - **JWT authentication out of the box** — separate auth route exchanges credentials for a token, then the protected hub uses `[Authorize]`.
 - **Per-user session abstraction** — thread-safe counters, last-activity tracking, cleanup helpers, swappable backend.
-- **Declarative policy attributes** — rate limiting, connection caps, role/claim guards, telemetry. Opt-in, lock-free, zero cost when unused.
+- **Declarative policy attributes** — rate limiting (per connection, user or IP), connection caps, role/claim/permission guards, telemetry. Opt-in, lock-free, zero cost when unused.
 - **Resumable file upload** — chunk-streamed, SHA-256-verified, append-only, with live progress and safe resume on disconnect.
+- **A TypeScript twin** — `@g9/signalr-supernetcore-client` gives browser and Node front ends the same reconnect, JWT, file-transfer and quality features, kept in parity with the .NET client.
 - **Scale-out friendly** — no static per-process state on the correctness path.
 - **MAUI and NativeAOT friendly** — every hot path free of `Reflection.Emit` and runtime proxy generation.
 
@@ -331,6 +502,8 @@ Plain ASP.NET Core SignalR is excellent, but most teams end up writing the same 
 | `G9SignalRSuperNetCore.Client.MessagePack` | Opt-in binary hub protocol for clients (2.6+) |
 
 The source generator ships **inside the Server package** under `analyzers/dotnet/cs`. Consumers don't need a separate code-gen package; just reference `G9SignalRSuperNetCore.Server` (server) and `G9SignalRSuperNetCore.Client` (client) and the typed client lights up automatically.
+
+All four packages are versioned together (2.9.0), and their license is MIT. For browser and Node clients there is the npm package **`@g9/signalr-supernetcore-client`** 2.9.0 (peer dependency `@microsoft/signalr` ^10). It is built from [`js/`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js) in this repository; see [TypeScript client](#typescript-client-parity-rule).
 
 All packages target **.NET 10.0** and are AOT-compatible and trim-safe, the MessagePack packages included. **`G9SignalRSuperNetCore.Client` additionally targets `netstandard2.1`** for Unity 6 / engine runtimes (see [2.5.3](#253--client-multi-targets-netstandard21-unity)).
 
@@ -372,10 +545,13 @@ Then `dotnet publish -f net10.0-ios -c Release` should complete without trim or 
 │                                                                               │
 │   ┌───────── Policy & telemetry ─────────┐                                    │
 │   │ G9CHubFilter (singleton, lock-free)  │  enforces:                         │
-│   │   • G9CTokenBucket per (conn,method) │   [G9AttrRateLimit]                │
-│   │   • G9CConnectionCounter per user/IP │   [G9AttrConnectionLimit]          │
-│   │   • role/claim guards                │   [G9AttrRequireRole / Claim]      │
-│   │   • ActivitySource spans             │   [G9AttrTelemetry]                │
+│   │   • G9CTokenBucket per scope+method  │   [G9AttrRateLimit(Scope = …)]     │
+│   │   • G9CConnectionCounter per hub,    │   [G9AttrConnectionLimit]          │
+│   │     user and IP (released once)      │                                    │
+│   │   • role/claim/permission guards     │   [G9AttrRequireRole / Claim]      │
+│   │                                      │   [G9AttrRequirePermission]        │
+│   │   • IG9UserConnectionIndex (opt-in)  │                                    │
+│   │   • ActivitySource spans (sampled)   │   [G9AttrTelemetry]                │
 │   │   • G9CTelemetry.Meter (metrics)     │                                    │
 │   └──────────────────────────────────────┘                                    │
 │                                                                               │
@@ -387,10 +563,11 @@ Then `dotnet publish -f net10.0-ios -c Release` should complete without trim or 
 │   AddSignalRSuperNetCoreCore()                                                │
 │   AddG9SignalRSuperNetCoreSessionStore<TSession>()                            │
 │   AddG9SignalRSuperNetCoreFileUpload(opt => …)                                │
+│   AddG9SignalRSuperNetCoreConnectionIndex()          (2.9, opt-in)            │
 │   AddSignalRSuperNetCoreJwt(hubPath, validationParameters)                    │
 │   AddSignalRSuperNetCoreJwtHub<THub, TClient>(hubRoute, authRoute, …)         │
 │                                                                               │
-│   /AuthHub  ─►  /SecureHub  (Authorize)                                       │
+│   /AuthHub (per-IP throttle)  ─►  /SecureHub  (Authorize)                     │
 └──────────────────────────────────────────────────────────────────────────────┘
                                      ▲
                                      │  WebSocket / SSE / LongPolling
@@ -410,6 +587,8 @@ Then `dotnet publish -f net10.0-ios -c Release` should complete without trim or 
 │     • BeginUpload → resume offset → stream chunks                             │
 │     • IProgress<G9DtUploadClientProgress> (local + server-ack)                │
 │     • exponential-backoff retry, safe resume on disconnect                    │
+│                                                                               │
+│   G9CConnectionQualityMonitor(connection) ── G9Ping RTT → Good/Fair/Poor/Lost │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -419,23 +598,33 @@ Then `dotnet publish -f net10.0-ios -c Release` should complete without trim or 
 
 - .NET 10.0 SDK or later
 - ASP.NET Core 10 project for the server
-- Any .NET 10 project for the client (console, MAUI, WPF, Blazor, ASP.NET, etc.)
+- Any .NET 10 project for the client (console, MAUI, WPF, Blazor, ASP.NET, etc.), or a .NET Standard 2.1 runtime such as Unity 6 (see [2.5.3](#253--client-multi-targets-netstandard21-unity))
+- For the TypeScript client: Node 18+ or a modern browser, with `@microsoft/signalr` ^10
 
 ### Install
 
 Server project:
 
 ```powershell
-dotnet add package G9SignalRSuperNetCore.Server
+dotnet add package G9SignalRSuperNetCore.Server --version 2.9.0
 ```
 
 Client project:
 
 ```powershell
-dotnet add package G9SignalRSuperNetCore.Client
+dotnet add package G9SignalRSuperNetCore.Client --version 2.9.0
 ```
 
-The source generator is shipped inside the Server package (`analyzers/dotnet/cs`). Both project-reference and NuGet-reference flows pick it up automatically.
+Optional, the binary MessagePack protocol (see [MessagePack hub protocol](#messagepack-hub-protocol-opt-in)):
+
+```powershell
+dotnet add package G9SignalRSuperNetCore.Server.MessagePack --version 2.9.0   # server
+dotnet add package G9SignalRSuperNetCore.Client.MessagePack --version 2.9.0   # client
+```
+
+The source generator is shipped inside the Server package (`analyzers/dotnet/cs`). Both project-reference and NuGet-reference flows pick it up automatically. Keep all G9 packages on the same version.
+
+Browser or Node front end: see [TypeScript client](#typescript-client-parity-rule) for installing `@g9/signalr-supernetcore-client` 2.9.0.
 
 ---
 
@@ -719,13 +908,7 @@ public interface IG9SessionStore<TSession> where TSession : G9ASession, new()
 
 `GetOrCreateAsync` atomically creates a session on first connection and increments the connection counter. `ReleaseAsync` atomically decrements and removes the session when the counter hits zero. The in-memory implementation is lock-free; counters use `Interlocked`.
 
-For horizontal scale-out, replace the registration with a distributed implementation. A Redis-backed store is on the 2.2 roadmap and ships in a separate package so the core library has no Redis dependency.
-
-```csharp
-// 2.2 (preview):
-builder.Services.AddG9SignalRSuperNetCoreRedisSessionStore<ChatSession>(
-    redisConnectionString: builder.Configuration.GetConnectionString("Redis"));
-```
+For horizontal scale-out, replace the registration with your own distributed implementation of `IG9SessionStore<TSession>`. A Redis-backed store is planned for a separate package, so the core library keeps no Redis dependency; it has not shipped yet (see [Roadmap](#roadmap)).
 
 ## Auto-generated typed client
 
@@ -739,8 +922,8 @@ The generator ships **embedded inside the `G9SignalRSuperNetCore.Server` package
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.4.1" />
-  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.4.1" />
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.9.0" />
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.9.0" />
 </ItemGroup>
 ```
 
@@ -763,7 +946,7 @@ MyApp.Client/        // console / MAUI / WPF / Blazor
 ```xml
 <!-- MyApp.Shared.csproj -->
 <ItemGroup>
-  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.4.1" />
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.9.0" />
 </ItemGroup>
 
 <!-- MyApp.Server.csproj -->
@@ -774,7 +957,7 @@ MyApp.Client/        // console / MAUI / WPF / Blazor
 <!-- MyApp.Client.csproj -->
 <ItemGroup>
   <ProjectReference Include="..\MyApp.Shared\MyApp.Shared.csproj" />
-  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.4.1" />
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.9.0" />
 </ItemGroup>
 ```
 
@@ -785,9 +968,9 @@ The generator runs in `MyApp.Shared` (because that's where the hub class lives) 
 ```xml
 <!-- MyApp.Client.csproj -->
 <ItemGroup>
-  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.4.1"
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.9.0"
                     PrivateAssets="all" />        <!-- only the analyzer is needed -->
-  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.4.1" />
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.9.0" />
 </ItemGroup>
 ```
 
@@ -822,7 +1005,7 @@ the generator emits (into `obj/Generated/G9SignalRSuperNetCore.SourceGenerator/.
 - `IChatHubMethods` — methods interface mirroring the hub. `Task`, `Task<T>`, `ValueTask`, `ValueTask<T>`, `IAsyncEnumerable<T>`, and `CancellationToken` parameters are all supported.
 - `IChatHubListeners` — listener interface mirroring `IChatClient`.
 - `ChatHubClient` — partial class wired to `serverUrl + "/chat"`, with the typed `Server` proxy and default no-op listener overrides.
-- `ChatHubServerProxy` — internal sealed class that turns each method on `IChatHubMethods` into a single `HubConnection.SendCoreAsync` / `InvokeCoreAsync<T>` / `StreamAsyncCore<T>` call.
+- `ChatHubServerProxy` — internal sealed class that turns each method on `IChatHubMethods` into a single `HubConnection.InvokeCoreAsync` / `InvokeCoreAsync<T>` / `StreamAsyncCore<T>` call (`SendCoreAsync` for a method marked `[G9AttrOneWay]`).
 
 XML doc comments on hub methods and on the listener interface are forwarded into the generated code, so IntelliSense shows your descriptions on the client side.
 
@@ -877,10 +1060,10 @@ The generator publishes stable diagnostic IDs so the IDE highlights bad hub sign
 | ID | Severity | Meaning |
 |---|---|---|
 | `G9001` | Warning | Hub method returns an unsupported type. Use `Task`, `Task<T>`, `ValueTask`, `ValueTask<T>`, or `IAsyncEnumerable<T>`. |
-| `G9002` | Warning | Listener method returns something other than `Task` / `ValueTask`. |
+| `G9002` | Error | Listener method returns something other than `Task` / `ValueTask`. |
 | `G9003` | Warning | Hub method has more than 16 parameters (SignalR limit). |
 | `G9004` | Warning | Generic hub methods are not supported. |
-| `G9005` | Warning | Hub class is missing a `RoutePattern()` override. |
+| `G9005` | Info | Hub class is missing a `RoutePattern()` override. |
 | `G9006` | Warning | Hub is missing the listener interface generic argument. |
 | `G9007` | Error | Internal generator error — please file an issue with the diagnostic message. |
 
@@ -901,7 +1084,7 @@ await foreach (var item in client.Server.SubscribePrices("AAPL"))
     Console.WriteLine(item);
 ```
 
-Each method on the server interface maps to a single typed call on the underlying `HubConnection`. `Task` methods use `SendCoreAsync`; `Task<T>` methods use `InvokeCoreAsync<T>`; `IAsyncEnumerable<T>` uses `StreamAsyncCore<T>`. No `MethodInfo.Invoke`, no boxing of return values.
+Each method on the server interface maps to a single typed call on the underlying `HubConnection`. `Task` / `ValueTask` methods use `InvokeCoreAsync`, so awaiting them waits for the server (2.7+), or `SendCoreAsync` when the hub method carries `[G9AttrOneWay]`; `Task<T>` methods use `InvokeCoreAsync<T>`; `IAsyncEnumerable<T>` uses `StreamAsyncCore<T>`. No `MethodInfo.Invoke`, no boxing of return values.
 
 ### Listener wiring
 
@@ -920,7 +1103,7 @@ public sealed class MyClient(string url) : ChatHubClient(url)
 
 ### Automatic reconnect and timeouts
 
-Automatic reconnect (`WithAutomaticReconnect()`) is enabled by default and the server timeout is 60 seconds. Both can be customized through the `customConfigureBuilder` and `configureHttpConnection` constructor parameters of the generated client.
+Automatic reconnect is enabled by default with [`G9CClientReconnectPolicy`](#resilient-client-reconnect), and the server timeout is 60 seconds. Both can be customized through the `customConfigureBuilder` and `configureHttpConnection` constructor parameters of the generated client.
 
 ### Opt-in connection behaviours (`ConfigureConnectionOptions`)
 
@@ -992,20 +1175,82 @@ await foreach (var item in client.Connection.StreamAsync<int>("MyStream"))
 
 The base client implements `IAsyncDisposable`. `await using var client = new ChatHubClient(url);` disposes the connection cleanly.
 
+### Connection quality (2.9)
+
+`G9CConnectionQualityMonitor` probes the built-in `G9Ping` hub method at an interval (default 5 s) and reports `Good` (< 150 ms), `Fair` (< 400 ms), `Poor` (≥ 400 ms, or one failed probe) or `Lost` (three failed probes in a row, or not connected). `QualityChanged` fires only when the level changes, and `Current` holds the latest measurement. Keep the interval at 500 ms or more, because the server rate-limits `G9Ping` to 2 calls a second per connection. It works on both client targets (net10.0 and netstandard2.1) and needs a 2.9 server; against an older one every probe fails and the level ends at `Lost`.
+
+```csharp
+await using var quality = new G9CConnectionQualityMonitor(client.Connection, TimeSpan.FromSeconds(5));
+quality.QualityChanged += q => Console.WriteLine($"{q.Level} ({q.RttMs:F0} ms)");
+quality.Start();
+```
+
+### Waiting for the connection (2.9)
+
+`connection.WaitUntilConnectedAsync(timeout, ct)` returns at once when the connection is `Connected`. Otherwise it waits for the automatic reconnect to finish and throws `TimeoutException` after `timeout` (`Timeout.InfiniteTimeSpan` waits until `ct` is cancelled). It never starts the connection itself. `G9CFileUploader` calls it before each `BeginUpload` with its `ReconnectGrace`.
+
 ---
+
+## TypeScript client (parity rule)
+
+A TypeScript twin of the .NET client lives in [`js/`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js) of this repository as the npm package **`@g9/signalr-supernetcore-client`**, version 2.9.0 like the .NET packages. It is written separately, by another developer, against the same server. It calls the same hub methods and uses the same DTO member names and error codes, and it is the client that browser and Node front ends use. It ships as ESM with type declarations, runs in browsers and on Node 18+, and has one peer dependency, `@microsoft/signalr` ^10.
+
+**Install.** The release pipeline type-checks, tests and builds the package, but it does not publish it to the npm registry. Install it from a registry you publish it to, or from the packed tarball:
+
+```bash
+npm install @microsoft/signalr@^10
+
+# from a registry that carries it
+npm install @g9/signalr-supernetcore-client@2.9.0
+
+# or from the tarball: in js/, `npm pack` builds g9-signalr-supernetcore-client-2.9.0.tgz
+# (`npm run pack:vendor` builds it and copies it into the G9Hub web app's vendor/ folder)
+npm install ./vendor/g9-signalr-supernetcore-client-2.9.0.tgz
+
+# optional, binary frames
+npm install @microsoft/signalr-protocol-msgpack@^10
+```
+
+```ts
+import { authorize, G9Client } from '@g9/signalr-supernetcore-client';
+
+const auth = await authorize('https://host/AuthHub', 'valid-credentials');   // a refusal is a result, not an exception
+if (!auth.isAccepted) throw new Error(auth.rejectionReason ?? 'refused');       // 'G9_RATE_LIMITED' when throttled (2.9)
+const client = new G9Client({ url: 'https://host/SecureHub', accessTokenFactory: () => auth.jwToken! });
+await client.start();
+await client.invoke('SendMessage', 'Iman', 'Hello from the browser');
+```
+
+The [package README](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/js/README.md) covers connecting, uploads, downloads and the quality monitor. [PARITY.md](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/js/PARITY.md) maps every .NET member to its TypeScript twin and lists the deliberate differences.
+
+**The rule: every change to the public surface of `G9SignalRSuperNetCore.Client` must be made in the TypeScript package in the same change, and vice versa.** That covers methods, options, reconnect behaviour, error codes and the file-transfer DTOs. A pull request that changes only one side is incomplete. The same applies to the server contract both clients depend on: hub method names (`BeginUpload`, `UploadChunks`, `BeginDownload`, `DownloadChunks`, `G9Ping`, `Authorize` / `AuthorizeResult`), DTO member names (they are the wire format), and the `G9_*` codes.
+
+| .NET | TypeScript (`@g9/signalr-supernetcore-client`) | What must match |
+|---|---|---|
+| `G9SignalRSuperNetCoreClient` | `G9Client` | One connection per client, the stateful-reconnect options and the state reporting. The defaults differ on purpose: the TypeScript client retries the first connect, restarts after a final close and turns stateful reconnect on (see PARITY.md). |
+| `G9CClientReconnectPolicy` | `G9ReconnectPolicy` | `G9ReconnectPolicy.exponential()` reproduces the .NET curve: 200 ms base, ×2 per attempt, 30 s cap, ±15% jitter, 5-minute budget. `fromDelegate` is the custom-delegate escape hatch. The TypeScript client's default policy is a schedule that never gives up. |
+| `G9CFileUploader` | `G9FileUploader` | The `BeginUpload` / `UploadChunks` protocol, a deterministic upload id (derived from different inputs on each platform), the SHA-256 declaration, resume from `BytesAlreadyReceived`, waiting up to `ReconnectGrace` (2 min) for the connection before `BeginUpload` (2.9), retries with backoff, server-acknowledged progress, and `StoredFileName` on the result (2.9). |
+| `G9CFileDownloader` | `G9FileDownloader` | The `BeginDownload` / `DownloadChunks` protocol, resume (from a `.partial` file in .NET, from the bytes already received in TypeScript), and SHA-256 verification before the result is handed over. |
+| `WaitUntilConnectedAsync` (2.9) | `waitUntilConnected()` / `client.waitUntilConnected()` | Returns at once when connected; otherwise completes on a reconnect or a 100 ms state poll, and times out. Never starts the connection. |
+| `G9CConnectionQualityMonitor` | `G9ConnectionQualityMonitor` | Probing `G9Ping` every 5 s by default. Good < 150 ms, Fair < 400 ms, Poor at ≥ 400 ms or after 1 failed probe, Lost after 3 failures in a row or whenever the connection is not connected. `RttMs = -1` without a measurement; the change event fires only when the level changes. |
+| `G9CErrorCodes` (server constants) | `G9ErrorCodes` | The same `G9_*` strings, including 2.9's `G9_PERMISSION_REQUIRED` and `G9_UPLOAD_FORBIDDEN`. |
+| JWT authorize (`AuthorizeAsync` on `G9SignalRSuperNetCoreClientWithJWTAuth`) | `authorize()` | Sending `Authorize(payload)` on the auth route and resolving with the `AuthorizeResult` callback (`IsAccepted`, `RejectionReason`, `JWToken`, `ExtraData`). That includes the `G9_RATE_LIMITED` rejection from the 2.9 throttle. |
+
+Public surface that is not in the table follows the same rule under the TypeScript naming conventions. The TypeScript tests (`js/test/parity.test.ts`) read the .NET sources and fail when the error codes, the file-transfer and authorize DTO member names, the upload status values or the quality thresholds drift apart.
 
 ## Policy attributes
 
-All attributes are opt-in. Apply them per-method (or per-class for connection limits) to enforce production-grade policies declaratively. The hub filter (`G9CHubFilter`, registered automatically by `AddSignalRSuperNetCoreCore()`) reads them from a per-method `MethodMeta` cache, so methods with **no** G9 attributes pay only the cost of one dictionary lookup per call.
+All attributes are opt-in. `[G9AttrConnectionLimit]` goes on the hub class; rate limits and the connection check go on methods; role, claim, permission and telemetry attributes work on a method or on the hub class (2.9: the class and its bases apply to every method, including the built-in `G9Ping`). A class-level role set and a method-level role set must both pass; every claim and permission is required wherever it is declared. The hub filter (`G9CHubFilter`, registered automatically by `AddSignalRSuperNetCoreCore()`) reads them from a per-method `MethodMeta` cache, so methods with **no** G9 attributes pay only the cost of one dictionary lookup per call.
 
 | Attribute | Target | Rejected with | Notes |
 |---|---|---|---|
-| `[G9AttrRateLimit(perSecond, burst)]` | method | `G9_RATE_LIMITED` | Lock-free token bucket per `(connectionId, method)`. Bursts up to `burst`, refills at `perSecond`. |
-| `[G9AttrConnectionLimit(perUser, perIp)]` | class | `G9_CONNECTION_LIMIT` | Caps simultaneous connections. `0` disables that dimension. Enforced on connect, before `OnConnectedAsync`. |
+| `[G9AttrRateLimit(perSecond, burst)]` | method | `G9_RATE_LIMITED` | Lock-free token bucket per `(connectionId, method)`. Bursts up to `burst`, refills at `perSecond`. With `Scope = G9ERateLimitScope.User` or `.Ip` (2.9), one bucket per `(user, method)` or `(IP, method)` is shared by all of that user's or address's connections. |
+| `[G9AttrConnectionLimit(perUser, perIp)]` | class | `G9_CONNECTION_LIMIT` | Caps simultaneous connections. `0` disables that dimension. Enforced on connect, before `OnConnectedAsync`. Counted per hub type (2.9). Each slot is given back exactly once: at disconnect, after an abrupt close too, or when the hub's own `OnConnectedAsync` throws. |
 | `[G9AttrConnectionRequired]` | method | `G9_CONNECTION_REQUIRED` | Fails fast when `Context.ConnectionAborted` is already cancelled. |
-| `[G9AttrRequireRole("admin")]` | method or class | `G9_ROLE_REQUIRED` | Caller must carry at least one of the listed roles. Stackable. |
-| `[G9AttrRequireClaim("scope", "chat:write")]` | method or class | `G9_CLAIM_REQUIRED` | Caller must carry the claim. Empty `acceptedValues` accepts any value. Stackable. |
-| `[G9AttrTelemetry]` / `[G9AttrTelemetry("name")]` | method or class | n/a | Wraps invocation in an `ActivitySource` span tagging connection id, user id, and outcome (`ok` / `cancelled` / `faulted`). |
+| `[G9AttrRequireRole("admin")]` | method or class | `G9_ROLE_REQUIRED` | Caller must carry at least one of the listed roles. Stackable; stacked attributes on one member add to the accepted roles (any one of them passes). A class-level set is a separate gate: class and method sets must both pass. |
+| `[G9AttrRequireClaim("scope", "chat:write")]` | method or class | `G9_CLAIM_REQUIRED` | Caller must carry the claim. Empty `acceptedValues` accepts any value. Stackable; every claim on the method and its class is required. |
+| `[G9AttrRequirePermission("rooms.moderate")]` (2.9) | method or class | `G9_PERMISSION_REQUIRED` | Decided by your `IG9HubPermissionHandler`. Every permission on the method and its class must be granted. Stackable. Refused when no handler is registered. |
+| `[G9AttrTelemetry]` / `[G9AttrTelemetry("name")]` | method or class | n/a | Wraps invocation in an `ActivitySource` span tagging connection id, user id, and outcome (`ok` / `cancelled` / `faulted`; `stream_started` for a streaming method). `SampleRate = 0.1` (2.9) traces a fraction of the calls. |
 | `[G9AttrDenyAccess]` (1.x carryover) | method | (auth pipeline rejects) | Applies a deny-by-default policy; framework methods use this. |
 | `[G9AttrExcludeFromClientGeneration]` (1.x carryover) | method | n/a | Tells the source generator to skip the method. |
 
@@ -1069,8 +1314,16 @@ public class ChatHub : G9AHubBase<ChatHub, IChatClient>
         string uploadId, string fileName, long totalBytes, int chunkSize, string declaredSha256Hex)
     {
         var svc = ResolveUploadService();   // IG9UploadService from DI
-        return await svc.BeginAsync(uploadId, fileName, totalBytes, chunkSize, declaredSha256Hex,
-            Context.ConnectionAborted);
+        try
+        {
+            // 2.9: the first argument is the owner (null = anonymous; the overload without it still exists)
+            return await svc.BeginAsync(Context.UserIdentifier, uploadId, fileName, totalBytes, chunkSize,
+                declaredSha256Hex, Context.ConnectionAborted);
+        }
+        catch (InvalidOperationException e) when (e.Message.StartsWith("G9_", StringComparison.Ordinal))
+        {
+            throw new HubException(e.Message);   // SignalR shows the client only a HubException's message
+        }
     }
 
     public async Task<G9DtUploadResult> UploadChunks(string uploadId, IAsyncEnumerable<byte[]> chunks)
@@ -1079,6 +1332,7 @@ public class ChatHub : G9AHubBase<ChatHub, IChatClient>
         var caller = Clients.Caller;
 
         return await svc.AppendChunksAsync(
+            Context.UserIdentifier,   // the same owner as in BeginUpload
             uploadId,
             chunks,
             onProgress: bytes => caller.UploadProgress(new G9DtUploadProgress
@@ -1098,7 +1352,8 @@ Add `Task UploadProgress(G9DtUploadProgress progress)` to your `IChatClient` lis
 
 - In flight: `{RootDirectory}/{PartialSubdirectory}/{uploadId}.bin` (default `./uploads/.partial/`)
 - Sidecar metadata: `{uploadId}.meta` (small JSON, source-generated serialization)
-- After commit: atomically renamed to `{RootDirectory}/{fileName}` (timestamp-suffixed if the name collides)
+- After commit: atomically renamed to `{RootDirectory}/{fileName}` (timestamp-suffixed if the name collides). The result's `StoredFileName` (2.9) says which name was used.
+- 2.9 options: `PerUserNamespace` stores an owner's partials under `{owner}-{hash}__{uploadId}`, `RandomizeCommittedNames` commits as `{32 hex}{.ext}`, `Authorize` can refuse any operation (`G9_UPLOAD_FORBIDDEN`), and `CleanupInterval` (default 10 minutes) runs the hosted sweep that deletes expired partials together with their `.meta`. Pass the owner with `BeginAsync(Context.UserIdentifier, …)` / `AppendChunksAsync(Context.UserIdentifier, …)`. See [2.9](#29--scoped-rate-limits-auth-route-throttle-upload-ownership-permissions-connection-index-and-quality).
 
 The repo's `.gitignore` excludes `**/uploads/` and `**/.partial/` so committed files and partials never accidentally reach the repo.
 
@@ -1111,6 +1366,7 @@ var uploader = new G9CFileUploader(client.Connection, new G9DtUploadClientOption
 {
     ChunkSize  = 64 * 1024,           // 64 KB; capped at 4 MB by the server
     MaxRetries = 5,                   // exponential backoff between retries
+    ReconnectGrace = TimeSpan.FromMinutes(2), // 2.9: wait this long for a reconnect before each BeginUpload
     BeginMethod = "BeginUpload",      // hub method names; defaults shown
     UploadMethod = "UploadChunks"
 });
@@ -1125,7 +1381,7 @@ var result = await uploader.UploadAsync("file_upload_test.zip", progress, server
 switch (result.Status)
 {
     case G9EUploadStatus.Completed:
-        Console.WriteLine($"OK — {result.BytesWritten} B at {result.FinalPath}");
+        Console.WriteLine($"OK — {result.BytesWritten} B stored as {result.StoredFileName}");   // 2.9; download it by this name
         Console.WriteLine($"     SHA-256 = {result.Sha256}");
         break;
     case G9EUploadStatus.Interrupted:
@@ -1138,6 +1394,8 @@ switch (result.Status)
 }
 ```
 
+A refusal at `BeginUpload` (`G9_UPLOAD_FORBIDDEN`, `G9_UPLOAD_TOO_LARGE`, `G9_UPLOAD_NAME_CONFLICT`, `G9_UPLOAD_METADATA_CONFLICT`) is not a result: `UploadAsync` throws the `HubException`, whose message carries the code when the hub rethrows it as shown above. If the connection is not connected when an attempt starts, `UploadAsync` waits up to `ReconnectGrace` for it (2.9) and then throws `TimeoutException`.
+
 ### Resume guarantees
 
 - **Append-only writes** server-side, so a partial file is never corrupted by retry.
@@ -1149,17 +1407,20 @@ switch (result.Status)
 ### Out of scope (today)
 
 - **Cross-server resume in a load-balanced cluster** — the partial lives on whichever server node first received chunks. With sticky sessions you're fine; without them, a future call may land on a different node and start over. The Bundle 5 Redis package and a shared blob backend will close this.
-- **Bandwidth throttling / pause-resume from the UI** — easy to add on top; not in 2.1.
+- **Bandwidth throttling / pause-resume from the UI** — easy to add on top; not built in.
 
 ## Resumable file download
 
-Symmetric to the upload pipeline. The server exposes `BeginDownloadAsync(serverRelativePath, resumeFrom, chunkSize)` and a streaming `StreamFileAsync(...)`. The client uses `G9CFileDownloader` and gets the same resume guarantees.
+Symmetric to the upload pipeline. The server exposes `BeginDownloadAsync(serverRelativePath, resumeFrom, chunkSize)` and a streaming `StreamFileAsync(...)`, each with an owner-aware overload (2.9) that passes the caller to the `Authorize` hook. The client uses `G9CFileDownloader` and gets the same resume guarantees.
 
 ```csharp
-// Server hub method (sample ChatHub):
+// Server hub methods (_uploads is the injected IG9UploadService; 2.9 passes the owner):
+public Task<G9DtBeginDownloadResult> BeginDownload(string fileName, long resumeFrom, int chunkSize)
+    => _uploads.BeginDownloadAsync(Context.UserIdentifier, fileName, resumeFrom, chunkSize, Context.ConnectionAborted).AsTask();
+
 [G9AttrTelemetry]
 public IAsyncEnumerable<byte[]> DownloadChunks(string fileName, long resumeFrom, int chunkSize, CancellationToken ct)
-    => _uploads.StreamFileAsync(fileName, resumeFrom, chunkSize, ct);
+    => _uploads.StreamFileAsync(Context.UserIdentifier, fileName, resumeFrom, chunkSize, ct);
 
 // Client:
 var downloader = new G9CFileDownloader(connection, new G9DtDownloadClientOptions
@@ -1168,7 +1429,7 @@ var downloader = new G9CFileDownloader(connection, new G9DtDownloadClientOptions
     OnRetry = info => Console.WriteLine($"resume from {info.BytesAlreadyOnServer} after {info.Backoff}")
 });
 var result = await downloader.DownloadAsync(
-    serverFileName: "file_upload_test.zip",
+    serverFileName: "file_upload_test.zip",   // the upload's StoredFileName
     localTargetPath: @"C:\downloads\file_upload_test.zip",
     progress: new Progress<G9DtDownloadClientProgress>(p =>
         Console.WriteLine($"{100.0 * p.BytesReceived / p.TotalBytes:F1}%")));
@@ -1412,23 +1673,26 @@ Built-in counters:
 
 - `g9.signalr.rate_limited_invocations` — calls rejected by `[G9AttrRateLimit]`.
 - `g9.signalr.connection_limit_rejections` — connections rejected by `[G9AttrConnectionLimit]`.
-- `g9.signalr.authorization_rejections` — calls rejected by `[G9AttrRequireRole]` / `[G9AttrRequireClaim]`.
+- `g9.signalr.authorization_rejections` — calls rejected by `[G9AttrRequireRole]` / `[G9AttrRequireClaim]` / `[G9AttrRequirePermission]`.
 
 ### Policy-rejection logging
 
-In addition to the metrics above, `G9CHubFilter` emits a structured `Warning`-level log entry every time a policy refuses an invocation, so an operator reading the server log can see *why* a call or connect was rejected (not just that the client received a `HubException`). The filter resolves an `ILogger<G9CHubFilter>` from DI; when constructed outside DI (`new G9CHubFilter()`), logging routes to `NullLogger` and only the metrics fire. Two event ids:
+In addition to the metrics above, `G9CHubFilter` emits a structured `Warning`-level log entry every time a policy refuses an invocation, so an operator reading the server log can see *why* a call or connect was rejected (not just that the client received a `HubException`). The filter resolves an `ILogger<G9CHubFilter>` from DI; when constructed outside DI (`new G9CHubFilter()`), logging routes to `NullLogger` and only the metrics fire. Four event ids:
 
-- `9100` — per-invocation rejection (rate limit, role, claim, connection-required). Fields: `ErrorCode`, `Method`, `ConnectionId`, `UserId`, `Detail`.
+- `9100` — per-invocation rejection (rate limit, role, claim, permission, connection-required). Fields: `ErrorCode`, `Method`, `ConnectionId`, `UserId`, `Detail`.
 - `9101` — per-connect rejection (connection limit). Fields: `Hub`, `Dimension` (`per-user`/`per-ip`), `Key`, `Limit`.
+- `9102` (2.9) — the JWT authorize route throttled a caller. Category `G9SignalRSuperNetCore.Server.Classes.Hubs.G9GetJwtHub`. Fields: `Route`, `RemoteIp`.
+- `9103` (2.9) — a method requires a permission but no `IG9HubPermissionHandler` is registered, so the call was refused. Fields: `Method`, `Permissions`, `ConnectionId`.
 
-Filter these out by raising the minimum level for the `G9SignalRSuperNetCore.Server.Classes.Filters.G9CHubFilter` category if the warnings are noisy in your environment.
+Filter these out by raising the minimum level for the `G9SignalRSuperNetCore.Server.Classes.Filters.G9CHubFilter` category (and `G9SignalRSuperNetCore.Server.Classes.Hubs.G9GetJwtHub` for 9102) if the warnings are noisy in your environment. Refused file-transfer operations (2.9) are logged as warnings by `G9CUploadService`, without an event id.
 
 Stable error codes (`G9SignalRSuperNetCore.Server.Classes.Errors.G9CErrorCodes`):
 
 ```
 G9_RATE_LIMITED          G9_CONNECTION_LIMIT       G9_CONNECTION_REQUIRED
-G9_ROLE_REQUIRED         G9_CLAIM_REQUIRED
+G9_ROLE_REQUIRED         G9_CLAIM_REQUIRED         G9_PERMISSION_REQUIRED (2.9)
 G9_UPLOAD_TOO_LARGE      G9_UPLOAD_HASH_MISMATCH   G9_UPLOAD_UNKNOWN_ID    G9_UPLOAD_FAILED
+G9_UPLOAD_NAME_CONFLICT  G9_UPLOAD_METADATA_CONFLICT                       G9_UPLOAD_FORBIDDEN (2.9)
 ```
 
 The codes are part of the public API; switching on them in the client is supported and recommended.
@@ -1476,6 +1740,8 @@ A single ASP.NET Core SignalR server typically handles up to ~100,000 WebSocket 
 
 This library does not embed any correctness-critical state in static fields. The same hub source code that runs in a single dev process runs unchanged behind a backplane.
 
+The policy state is per process, though: rate-limit buckets (all three scopes), connection-limit counters, the JWT authorize throttle and `IG9UserConnectionIndex` (2.9) each see only the connections of their own node. Behind a load balancer, a user's allowance is therefore per node, and `AbortUser` reaches only the connections on the node where it runs.
+
 A coming **G9SignalRSuperNetCore.Server.Redis** package will provide a turnkey distributed `IG9SessionStore<TSession>` plus an `AddG9SignalRBackplane(...)` helper that wires `Microsoft.AspNetCore.SignalR.StackExchangeRedis`. The same package will offer a Redis-backed token-bucket rate limiter so the policy attributes can enforce cluster-wide caps.
 
 ## Thread safety contract
@@ -1489,6 +1755,7 @@ The library is designed for high-concurrency hubs. Specifically:
 - **`G9JWTokenFactory` is process-shared.** A single `JwtSecurityTokenHandler` is reused; the handler is documented as thread-safe for issuance and validation.
 - **Token bucket is wait-free in the uncontended case.** State is encoded in a single 64-bit field and updated through `Interlocked.CompareExchange` with bounded retry. No locks, no allocations on the hot path.
 - **Connection counter cells are reference-counted.** A cell is removed from the dictionary only when its counter falls back to zero, so the dictionary doesn't grow unboundedly under churn.
+- **Connection-limit slots and shared rate-limit buckets are released exactly once (2.9).** The filter records at connect which counters a connection took and gives exactly those back, without reading the (possibly disposed) HTTP context again. A user- or IP-scoped bucket is freed by the last connection that shares it, and a connect racing that last disconnect never increments a cell that is being removed.
 - **File-upload writes are serialized per `uploadId`** through a `SemaphoreSlim`. Two racing append calls for the same upload never interleave bytes; two calls for *different* uploads run in parallel.
 - **`G9CClientReconnectPolicy` is shareable.** `NextRetryDelay` may be called from any number of reconnect loops at once; from 2.8.0 its jitter comes from a thread-safe source, so the ±15% band holds under contention.
 
@@ -1539,16 +1806,23 @@ dotnet run --project G9SignalRSuperNetCore/G9SignalRSuperNetCore.WebServer -c Re
 dotnet run --project G9SignalRSuperNetCore/G9SignalRSuperNetCore.ConsoleClient -c Release
 ```
 
-The Release build is warning-clean across all nine projects. CI runs through `azure-pipelines.yml` on `main`. It builds, runs the tests, and only then publishes the four NuGet packages.
+```bash
+# The TypeScript client (from js/)
+npm ci && npm run typecheck && npm test && npm run build
+```
+
+The Release build is warning-clean across all nine projects. CI runs through `azure-pipelines.yml` on `main`. It builds, runs the .NET tests, type-checks, tests and builds the TypeScript client, and only then publishes the four NuGet packages.
 
 ### Releases
 
-A release is a version bump: set `<G9PackageVersion>` in `G9SignalRSuperNetCore/Directory.Build.props` (the one coordinate all four packages and the embedded generator are built from), add the entry under [What's new](#whats-new), and push to `main`. The pipeline does the rest, in this order:
+A release is a version bump: set `<G9PackageVersion>` in `G9SignalRSuperNetCore/Directory.Build.props` (the one coordinate all four packages and the embedded generator are built from), add the entry under [What's new](#whats-new), and push to `main`. Under the parity rule the TypeScript twin carries the same version: bump `version` in `js/package.json` and the exported `VERSION` in `js/src/index.ts` in the same change (`js/test/misc.test.ts` expects that value, so update it there too). The pipeline does the rest, in this order:
 
-1. build, then the tests;
+1. build, then the .NET tests, then the TypeScript client (`npm ci`, type-check, tests, build);
 2. push the four packages to nuget.org (`--skip-duplicate`, so re-running a version that is already there is harmless);
-3. **tag the released commit** `v<version>` (2.8+), an annotated tag, e.g. `v2.8.0`;
+3. **tag the released commit** `v<version>` (2.8+), an annotated tag, e.g. `v2.9.0`;
 4. sync the repository, tags included, to the GitHub mirror.
+
+The pipeline does not publish the TypeScript package to npm; produce its tarball with `npm pack` (or `npm run pack:vendor`) in `js/`.
 
 The tag step runs only on `main` and only when everything before it succeeded, so a tag always names a commit whose packages are on NuGet. It reads the version from `Directory.Build.props` and checks that each package glob holds a `.nupkg` of exactly that version before tagging. A tag that already exists is left where it is — tags are never moved. A tagging problem is reported as a warning and the run ends as *succeeded with issues*: by then the packages are public, and a red release would say the opposite.
 
@@ -1559,22 +1833,37 @@ Releases before 2.8.0 were not tagged. To tag one by hand: `git tag -a v2.7.0 <c
 ## Project layout
 
 ```
-G9SignalRSuperNetCore/
-├── G9SignalRSuperNetCore.sln
+(repository root)
+├── README.md                                               # this file (also packed into every NuGet package)
+├── LICENSE.md                                              # MIT
 ├── .gitignore                                              # excludes uploads/, partials, build.log
+├── azure-pipelines.yml                                     # build, tests, TypeScript client, NuGet push, tag, mirror
+├── js/                                                     # npm: @g9/signalr-supernetcore-client (TypeScript twin)
+│   ├── src/                                                # G9Client, authorize, uploader/downloader, quality monitor
+│   ├── test/                                               # vitest, incl. parity.test.ts against the .NET sources
+│   ├── README.md, PARITY.md, LICENSE.md
+│   └── scripts/pack-vendor.mjs                             # npm run pack:vendor
+└── G9SignalRSuperNetCore/                                  # the .NET solution (below)
+
+G9SignalRSuperNetCore/
+├── Directory.Build.props                                   # the one version coordinate + package metadata
+├── G9SignalRSuperNetCore.sln
 ├── G9SignalRSuperNetCore.Server/                           # NuGet: server library + embedded generator
 │   ├── G9SignalRSuperNetCoreServer.cs                      # Add… extension methods (DI helpers)
 │   ├── Classes/Abstracts/                                  # Hub bases (4 variants) + G9ASession
-│   ├── Classes/Attributes/                                 # DenyAccess, Exclude, RateLimit,
+│   ├── Classes/Attributes/                                 # DenyAccess, Exclude, RateLimit (+ G9ERateLimitScope),
 │   │                                                       # ConnectionLimit, ConnectionRequired,
-│   │                                                       # RequireRole, RequireClaim, Telemetry
+│   │                                                       # RequireRole, RequireClaim, RequirePermission, Telemetry
+│   ├── Classes/Authorization/                              # IG9HubPermissionHandler (2.9)
+│   ├── Classes/Connections/                                # IG9UserConnectionIndex + G9CUserConnectionIndex (2.9)
 │   ├── Classes/Errors/G9CErrorCodes.cs                     # G9_RATE_LIMITED, G9_CONNECTION_LIMIT, …
 │   ├── Classes/Filters/                                    # G9CHubFilter + G9CTokenBucket +
-│   │                                                       # G9CConnectionCounter + G9CTelemetry
+│   │                                                       # G9CConnectionCounter + G9CKeyRefCounter (2.9) + G9CTelemetry
 │   ├── Classes/FileUpload/                                 # IG9UploadService + G9CUploadService +
-│   │                                                       # DTOs (G9Dt…) and options
+│   │                                                       # G9CUploadCleanupService + DTOs (G9Dt…) and options
 │   ├── Classes/Helper/                                     # G9JWTokenFactory + deny policy
-│   ├── Classes/Hubs/                                       # G9GetJwtHub + G9CJwtRouteRegistry
+│   ├── Classes/Hubs/                                       # G9GetJwtHub + G9CJwtRouteRegistry +
+│   │                                                       # G9CAuthThrottle + G9DtJwtAuthOptions (2.9)
 │   ├── Classes/Sessions/                                   # IG9SessionStore + in-memory impl
 │   └── Enums/G9ESecurityAlgorithms.cs
 ├── G9SignalRSuperNetCore.Client/                           # NuGet: client library
@@ -1582,6 +1871,8 @@ G9SignalRSuperNetCore/
 │   ├── G9SignalRSuperNetCoreClientWithJWTAuth.cs           # adds AuthorizeAsync flow
 │   ├── G9DtClientConnectionOptions.cs                      # opt-in: stateful reconnect, WebSockets first (2.8)
 │   ├── G9CClientReconnectPolicy.cs                         # jittered backoff for automatic reconnect
+│   ├── G9CConnectionQualityMonitor.cs                      # G9Ping-based RTT / quality levels (2.9)
+│   ├── G9HubConnectionExtensions.cs                        # WaitUntilConnectedAsync (2.9)
 │   └── FileUpload/                                         # G9CFileUploader + DTOs + options
 ├── G9SignalRSuperNetCore.SourceGenerator/                  # Roslyn IIncrementalGenerator
 │   ├── G9HubClientGenerator.cs                             # generator entry point
@@ -1601,6 +1892,35 @@ G9SignalRSuperNetCore/
 ---
 
 ## Migration guide
+
+### 2.8 → 2.9
+
+2.9 is **additive**: every existing call compiles and binds to the overload it bound to before. One new default changes behaviour (item 1). Items 3, 5–7 and 10 are fixes whose effect you may notice.
+
+1. **The JWT authorize route is throttled, and the throttle is ON by default.** Once `AddSignalRSuperNetCoreJwt` is called (it registers the throttle), every `Authorize` call on a route mapped with `AddSignalRSuperNetCoreJwtHub` is charged to the caller's IP address: 60 calls a minute, with a burst of 20. Over that, the client gets `IsAccepted = false` with `RejectionReason = "G9_RATE_LIMITED"`, and your `authenticate` delegate is not called. Normal sign-ins never come near the limit, but integration tests or load tests that sign in many times from one machine may. Change it through the new `configureAuth` argument:
+
+   ```csharp
+   // raise it
+   builder.Services.AddSignalRSuperNetCoreJwt(hubPath, parameters, configureAuth: o =>
+   {
+       o.AuthorizePerMinutePerIp = 600;
+       o.AuthorizeBurstPerIp     = 100;
+   });
+
+   // or turn it off
+   builder.Services.AddSignalRSuperNetCoreJwt(hubPath, parameters, configureAuth: o => o.ThrottleEnabled = false);
+   ```
+
+   Behind a reverse proxy, add `app.UseForwardedHeaders(...)` so the throttle sees the real client address. Otherwise all clients share the proxy's allowance.
+2. **`G9Ping` is a new hub method on every G9 hub.** If one of your hubs already declares a method called `G9Ping`, rename it: SignalR does not allow overloaded hub methods, and the compiler warns about hiding. `G9Ping` is not added to generated typed clients. It is rate-limited per connection, and a class-level `[G9AttrRequirePermission]` applies to it like to any other method of the hub.
+3. **Uploads change nothing unless you opt in, with two exceptions.** `PerUserNamespace` and `RandomizeCommittedNames` are off by default, and with the namespace off the partial layout is unchanged, so uploads in flight at upgrade time resume as before. The two exceptions: results now carry the new `StoredFileName`, and the hosted cleanup now deletes partials older than `PartialTtl` (24 h) every 10 minutes. If you relied on abandoned partials being kept, raise `PartialTtl` or set `CleanupInterval = null`. Turning `PerUserNamespace` on stores new partials under owner-scoped ids; partials begun earlier under the plain id are not found through the owner-aware overloads, and they expire through the cleanup.
+4. **Custom `IG9UploadService` implementations keep compiling.** The owner-aware overloads have default implementations that call your existing methods and ignore the owner. Override them to honour ownership.
+5. **Rate limits below about 0.5 calls a second are now enforced as written.** Before 2.9 they refilled at roughly one call a second. If a slow limit now bites where it did not before, the attribute always said that; raise the value.
+6. **`[G9AttrConnectionLimit]` counts per hub, and slots no longer leak.** Before 2.9 the per-user and per-IP counters were shared by all hubs of the process, and a connection dropped abruptly never gave its slot back. Now each hub has its own counters and every slot is returned. A user with open connections to two limited hubs therefore has two separate allowances.
+7. **`G9CFileUploader` waits for the connection.** When the connection is not connected at the start of an attempt, `UploadAsync` now waits up to `ReconnectGrace` (2 minutes by default) for the automatic reconnect and then throws `TimeoutException`; before, the `BeginUpload` call failed at once. With `ReconnectGrace = TimeSpan.Zero` it fails at once again, with that `TimeoutException`.
+8. **New codes and log events.** `G9_PERMISSION_REQUIRED` and `G9_UPLOAD_FORBIDDEN`; log event ids 9102 (auth throttle, category `G9GetJwtHub`) and 9103 (a permission is required but no `IG9HubPermissionHandler` is registered). `G9CHubFilter.TrackedRateLimitConnections` now also counts shared user and IP buckets.
+9. **The TypeScript twin moves in step.** Changes to the public surface of the .NET client now go together with `@g9/signalr-supernetcore-client` (2.9.0); see [TypeScript client (parity rule)](#typescript-client-parity-rule). Front ends on `@microsoft/signalr` can switch to it for the same reconnect, JWT, file-transfer and quality behaviour.
+10. **Role, claim and telemetry attributes on a hub class now apply.** Before 2.9 the filter read them from the method only. If a hub class carries `[G9AttrRequireRole]` or `[G9AttrRequireClaim]`, every method of that hub (and `G9Ping`) now requires it — which is what the attribute always said; check that callers carry the role or claim. A method's role set no longer replaces the class set: both must pass.
 
 ### 2.7 → 2.8
 
@@ -1702,7 +2022,7 @@ The Castle.Core dependency is no longer present. Remove any direct references yo
 The 2.x line is shipped as a sequence of focused milestones.
 
 - **2.0 — Foundation (shipped Sept 2026).** AOT/MAUI safety, source-generator typed client, pluggable session store, lock-free session counters, encapsulated JWT registry, warning-clean Release build.
-- **2.1 — Policy & file upload (this release).**
+- **2.1 — Policy & file upload (shipped).**
   - `[G9AttrRateLimit]`, `[G9AttrConnectionLimit]`, `[G9AttrConnectionRequired]`, `[G9AttrRequireRole]`, `[G9AttrRequireClaim]`, `[G9AttrTelemetry]`.
   - Stable error codes (`G9_*`) and `System.Diagnostics.Metrics` counters.
   - Resumable, hash-verified file upload with progress and safe resume on disconnect.
@@ -1734,9 +2054,16 @@ The 2.x line is shipped as a sequence of focused milestones.
   - Generated clients use the client-library file-transfer twins (server acknowledgements reach `G9CFileUploader` again); same-project hubs resolve `Route` constants.
   - Registration idempotent per service collection; test project run by CI before publishing.
 - **2.7 — Call semantics & review fixes (shipped).** See [2.7](#27--awaited-calls-really-wait-and-four-correctness-fixes-from-an-external-review).
-- **2.8 — Connection options (this release).**
+- **2.8 — Connection options (shipped).**
   - `G9DtClientConnectionOptions` through the `ConfigureConnectionOptions` hook: stateful reconnect (with `allowStatefulReconnects` on the server mapping helpers and `AddG9SignalRSuperNetCoreStatefulReconnect`), and WebSockets first with a fallback to negotiation that keeps the `HubConnection`.
   - Thread-safe jitter in `G9CClientReconnectPolicy`; `Microsoft.Extensions.Http.Resilience` on the 10.x line; releases tagged `v<version>` by the pipeline.
+- **2.9 — Ownership and abuse controls (this release, 2.9.0).** See [2.9](#29--scoped-rate-limits-auth-route-throttle-upload-ownership-permissions-connection-index-and-quality).
+  - Rate-limit scopes (`Connection` / `User` / `Ip`) with shared buckets freed by the last connection; slow rates enforced as written.
+  - Per-IP throttle on the JWT authorize route, on by default (`G9DtJwtAuthOptions`).
+  - Upload ownership: `PerUserNamespace`, `RandomizeCommittedNames`, `StoredFileName`, the `Authorize` hook, owner-aware service overloads, and a hosted cleanup that removes `.bin` and `.meta` together.
+  - `[G9AttrRequirePermission]` + `IG9HubPermissionHandler`; `IG9UserConnectionIndex` (online users, abort a user); `G9Ping` + `G9CConnectionQualityMonitor`; `WaitUntilConnectedAsync`; telemetry `SampleRate`.
+  - IL2070 gone: streaming is detected from the declared return type. The TypeScript client (`js/`, `@g9/signalr-supernetcore-client`) is kept in parity with the .NET client.
+- **Next (planned).** Cluster-wide rate limits and connection index through `IG9DistributedBackplane` (Redis package); shared-storage upload partials for cross-node resume; BenchmarkDotNet suite.
 
 The order can shift in response to consumer feedback; track progress in the issues board.
 
@@ -1748,8 +2075,11 @@ Issues and pull requests are welcome.
 2. Match the existing code style: file-scoped namespaces, XML docs on public members, `G9` prefix on public types, `G9C…` for concrete classes, `G9A…` for abstracts, `G9Dt…` for DTOs, `G9Attr…` for attributes, `G9E…` for enums.
 3. `dotnet build -c Release` must finish with zero warnings — including AOT and trim warnings attributable to G9 code — and `dotnet test` must pass.
 4. Update or add a sample under `G9SignalRSuperNetCore.WebServer` / `G9SignalRSuperNetCore.ConsoleClient` when adding new public surface.
-5. New cryptographic code (in 2.4+) must use BCL primitives only and ship with property-based tests.
+5. A change to the public surface of the .NET client (or to the hub contract it uses) lands in `js/` in the same change, with [PARITY.md](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/js/PARITY.md) updated, and `npm run typecheck && npm test` in `js/` must pass. See [the parity rule](#typescript-client-parity-rule).
+6. New cryptographic code (in 2.4+) must use BCL primitives only and ship with property-based tests.
 
 ## License
 
-Released under the [MIT License](LICENSE.md).
+Released under the [MIT License](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/LICENSE.md). Copyright (c) 2024-present Iman Kari (G9TM).
+
+The same license text ships as `LICENSE.md` in every NuGet package and in the npm package `@g9/signalr-supernetcore-client`.

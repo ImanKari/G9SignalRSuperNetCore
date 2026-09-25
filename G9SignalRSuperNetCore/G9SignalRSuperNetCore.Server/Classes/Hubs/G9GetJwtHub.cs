@@ -1,6 +1,9 @@
 ﻿using G9SignalRSuperNetCore.Server.Classes.DataTypes;
+using G9SignalRSuperNetCore.Server.Classes.Errors;
 using G9SignalRSuperNetCore.Server.Classes.Helper;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace G9SignalRSuperNetCore.Server.Classes.Hubs;
 
@@ -20,9 +23,29 @@ public class G9GetJwtHub : Hub
     ///     The authorization payload sent by the client. Forwarded verbatim to the registered
     ///     handler. The shape of this payload is consumer-defined.
     /// </param>
+    /// <remarks>
+    ///     2.9: the call is first charged to the caller's remote IP address in <see cref="G9CAuthThrottle"/> (registered by
+    ///     <c>AddSignalRSuperNetCoreJwt</c>, on by default, see <see cref="G9DtJwtAuthOptions"/>). A caller over its
+    ///     allowance gets <c>IsAccepted = false</c> with <c>RejectionReason = "G9_RATE_LIMITED"</c>
+    ///     (<see cref="G9CErrorCodes.RateLimited"/>), the credential check does not run, and a warning (event 9102) is logged.
+    /// </remarks>
     public async Task Authorize(object authorizeData)
     {
-        var routePattern = Context.GetHttpContext()?.Request.Path.Value;
+        var httpContext = Context.GetHttpContext();
+        var routePattern = httpContext?.Request.Path.Value;
+
+        var throttle = httpContext?.RequestServices.GetService<G9CAuthThrottle>();
+        if (throttle is not null)
+        {
+            var remoteIp = httpContext!.Connection.RemoteIpAddress?.ToString();
+            if (!throttle.TryAcquire(remoteIp))
+            {
+                var logger = httpContext.RequestServices.GetService<ILogger<G9GetJwtHub>>();
+                if (logger is not null) G9CAuthThrottle.LogThrottled(logger, routePattern, remoteIp);
+                await SendResultAsync(MakeError(G9CErrorCodes.RateLimited)).ConfigureAwait(false);
+                return;
+            }
+        }
 
         if (string.IsNullOrEmpty(routePattern))
         {

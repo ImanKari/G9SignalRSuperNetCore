@@ -90,6 +90,11 @@ public sealed class G9CFileUploader
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // Parity with the TypeScript uploader: after a drop, give the connection ReconnectGrace to come back
+                // before asking the server for the resume offset (the attempt fails fast when it does not).
+                if (_connection.State != HubConnectionState.Connected)
+                    await _connection.WaitUntilConnectedAsync(_options.ReconnectGrace, cancellationToken).ConfigureAwait(false);
+
                 // BeginUpload returns the server-side offset to resume from (or AlreadyCompleted=true).
                 var begin = await _connection.InvokeAsync<G9DtBeginUploadResult>(
                     _options.BeginMethod,
@@ -103,7 +108,8 @@ public sealed class G9CFileUploader
                         Status = G9EUploadStatus.Completed,
                         BytesWritten = totalBytes,
                         Sha256 = declaredSha,
-                        FinalPath = begin.FinalPath
+                        FinalPath = begin.FinalPath,
+                        StoredFileName = begin.StoredFileName
                     };
                 }
 

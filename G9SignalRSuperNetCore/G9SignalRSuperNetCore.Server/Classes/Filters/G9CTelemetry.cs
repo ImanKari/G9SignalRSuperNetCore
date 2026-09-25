@@ -42,9 +42,9 @@ public static class G9CTelemetry
     public static readonly Counter<long> ConnectionLimitRejections =
         Meter.CreateCounter<long>("g9.signalr.connection_limit_rejections", description: "Connections rejected by [G9AttrConnectionLimit].");
 
-    /// <summary>Counts hub invocations rejected because authorization claims/roles are missing.</summary>
+    /// <summary>Counts hub invocations rejected because authorization claims/roles/permissions are missing.</summary>
     public static readonly Counter<long> AuthorizationRejections =
-        Meter.CreateCounter<long>("g9.signalr.authorization_rejections", description: "Hub invocations rejected by [G9AttrRequireRole]/[G9AttrRequireClaim].");
+        Meter.CreateCounter<long>("g9.signalr.authorization_rejections", description: "Hub invocations rejected by [G9AttrRequireRole]/[G9AttrRequireClaim]/[G9AttrRequirePermission].");
 
     /// <summary>Items yielded by streaming hub methods carrying [G9AttrTelemetry].</summary>
     public static readonly Counter<long> StreamItems =

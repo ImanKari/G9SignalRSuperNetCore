@@ -21,6 +21,12 @@ public sealed class G9DtBeginUploadResult
 
     /// <summary>The server-side path of the already-committed file when <see cref="AlreadyCompleted"/> is true.</summary>
     public string? FinalPath { get; init; }
+
+    /// <summary>
+    ///     2.9: the committed file's name relative to <see cref="G9DtUploadOptions.RootDirectory"/> when
+    ///     <see cref="AlreadyCompleted"/> is true; <c>null</c> otherwise.
+    /// </summary>
+    public string? StoredFileName { get; init; }
 }
 
 /// <summary>
@@ -39,6 +45,14 @@ public sealed class G9DtUploadResult
 
     /// <summary>Final on-disk path of the committed file (set when <see cref="Status"/> is <see cref="G9EUploadStatus.Completed"/>).</summary>
     public string? FinalPath { get; init; }
+
+    /// <summary>
+    ///     2.9: the committed file's name relative to <see cref="G9DtUploadOptions.RootDirectory"/> (set when
+    ///     <see cref="Status"/> is <see cref="G9EUploadStatus.Completed"/>). This is the name to pass to
+    ///     <c>BeginDownloadAsync</c>, and it differs from the declared name when the name was taken (timestamp suffix)
+    ///     or when <see cref="G9DtUploadOptions.RandomizeCommittedNames"/> is on.
+    /// </summary>
+    public string? StoredFileName { get; init; }
 
     /// <summary>Stable G9 error code when <see cref="Status"/> is <see cref="G9EUploadStatus.Failed"/>.</summary>
     public string? ErrorCode { get; init; }

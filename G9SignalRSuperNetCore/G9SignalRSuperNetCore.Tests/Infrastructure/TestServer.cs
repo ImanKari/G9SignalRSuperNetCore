@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Security.Claims;
 using G9SignalRSuperNetCore.Client;
 using G9SignalRSuperNetCore.Client.MessagePack;
 using G9SignalRSuperNetCore.Server;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -61,11 +63,22 @@ public sealed class TestServer : IAsyncDisposable
     /// <summary>The running host's services, for tests that inspect singleton state such as the hub filter.</summary>
     public IServiceProvider Services => _app.Services;
 
+    /// <summary>A user id provider for tests: the <c>user</c> query-string value of the connection, or none.</summary>
+    public static readonly Func<HubConnectionContext, string?> UserFromQuery = connection =>
+        connection.GetHttpContext()?.Request.Query["user"].ToString() is { Length: > 0 } user ? user : null;
+
     /// <summary>
     ///     Starts a server; <paramref name="offerMessagePack" /> adds the MessagePack protocol next to JSON, and
     ///     <paramref name="statefulReconnectBufferSize" /> goes through <c>AddG9SignalRSuperNetCoreStatefulReconnect</c>.
+    ///     <paramref name="configureServices"/> runs after the core services and before the file-upload registration;
+    ///     <paramref name="configureApp"/> runs after the standard hubs are mapped.
     /// </summary>
-    public static async Task<TestServer> StartAsync(bool offerMessagePack, long? statefulReconnectBufferSize = null)
+    public static async Task<TestServer> StartAsync(
+        bool offerMessagePack,
+        long? statefulReconnectBufferSize = null,
+        Action<IServiceCollection>? configureServices = null,
+        Action<WebApplication>? configureApp = null,
+        Func<HubConnectionContext, string?>? userIdentifier = null)
     {
         var root = Path.Combine(Path.GetTempPath(), "g9signalr-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -79,7 +92,8 @@ public sealed class TestServer : IAsyncDisposable
             listen.Use(wire.Middleware);
             listen.Use(probe.ConnectionMiddleware);
         }));
-        builder.Services.AddSignalRSuperNetCoreCore();
+        builder.Services.AddSignalRSuperNetCoreCore(userIdentifier);
+        configureServices?.Invoke(builder.Services);
         builder.Services.AddG9SignalRSuperNetCoreFileUpload(options =>
         {
             options.RootDirectory = root;
@@ -99,14 +113,38 @@ public sealed class TestServer : IAsyncDisposable
             context.Response.StatusCode = refusal;
             return Task.CompletedTask;
         });
+        // Test users: `?roles=a,b` and `?claims=type:value,…` become an authenticated principal (only when present).
+        app.Use((context, next) =>
+        {
+            var roles = context.Request.Query["roles"].ToString();
+            var claims = context.Request.Query["claims"].ToString();
+            if (roles.Length == 0 && claims.Length == 0) return next(context);
+            var list = roles.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(r => new Claim(ClaimTypes.Role, r))
+                .Concat(claims.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(c => c.Split(':', 2))
+                    .Select(pair => new Claim(pair[0], pair.Length > 1 ? pair[1] : string.Empty)));
+            context.User = new ClaimsPrincipal(new ClaimsIdentity(list, "test"));
+            return next(context);
+        });
         app.UseWebSockets();   // the slim builder leaves it out; without it the WebSocket transport gets a 404
         app.AddSignalRSuperNetCoreServerHub<TestHub, ITestHubClient>(TestHub.Route);
         app.AddSignalRSuperNetCoreServerHub<TestHub, ITestHubClient>(NoWebSocketsPrefix + TestHub.Route,
             options => options.Transports = HttpTransportType.ServerSentEvents | HttpTransportType.LongPolling);
         app.AddSignalRSuperNetCoreServerHub<TestHub, ITestHubClient>(StatefulPrefix + TestHub.Route, allowStatefulReconnects: true);
+        app.AddSignalRSuperNetCoreServerHub<PolicyHub, IPolicyHubClient>(PolicyHub.Route);
+        app.AddSignalRSuperNetCoreServerHub<GuardedHub, IPolicyHubClient>(GuardedHub.Route);
+        app.AddSignalRSuperNetCoreServerHub<RoleGuardedHub, IPolicyHubClient>(RoleGuardedHub.Route);
+        configureApp?.Invoke(app);
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First();
         return new TestServer(app, wire, probe, root, address.TrimEnd('/'));
+    }
+
+    /// <summary>A started JSON <see cref="HubConnection"/> to <paramref name="pathAndQuery"/> (e.g. <c>/policy?user=alice</c>).</summary>
+    public async Task<HubConnection> ConnectRawAsync(string pathAndQuery)
+    {
+        var connection = new HubConnectionBuilder().WithUrl(BaseUrl + pathAndQuery).Build();
+        await connection.StartAsync();
+        return connection;
     }
 
     public async Task<TestClient> ConnectAsync(TestProtocol protocol)

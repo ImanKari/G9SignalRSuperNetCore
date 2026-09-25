@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Security.Claims;
 using G9SignalRSuperNetCore.Server.Classes.Abstracts;
+using G9SignalRSuperNetCore.Server.Classes.Connections;
 using G9SignalRSuperNetCore.Server.Classes.Filters;
 using G9SignalRSuperNetCore.Server.Classes.Helper;
 using G9SignalRSuperNetCore.Server.Classes.Hubs;
@@ -106,6 +107,11 @@ public static class G9SignalRSuperNetCoreServer
     ///     <see cref="G9SignalRSuperNetCore.Server.Classes.FileUpload.G9DtUploadOptions.RootDirectory"/>
     ///     (default <c>./uploads</c>) with partials in a hidden subfolder.
     /// </summary>
+    /// <remarks>
+    ///     2.9: also registers the hosted <see cref="G9SignalRSuperNetCore.Server.Classes.FileUpload.G9CUploadCleanupService"/>,
+    ///     which purges partials older than <c>PartialTtl</c> every <c>CleanupInterval</c> (default 10 minutes;
+    ///     <c>null</c> turns it off).
+    /// </remarks>
     /// <param name="services">DI service collection.</param>
     /// <param name="configure">Optional callback to customize <see cref="G9SignalRSuperNetCore.Server.Classes.FileUpload.G9DtUploadOptions"/>.</param>
     public static IServiceCollection AddG9SignalRSuperNetCoreFileUpload(
@@ -117,6 +123,25 @@ public static class G9SignalRSuperNetCoreServer
 
         services.AddSingleton<G9SignalRSuperNetCore.Server.Classes.FileUpload.IG9UploadService,
             G9SignalRSuperNetCore.Server.Classes.FileUpload.G9CUploadService>();
+        services.AddHostedService<G9SignalRSuperNetCore.Server.Classes.FileUpload.G9CUploadCleanupService>();
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers the process-local <see cref="IG9UserConnectionIndex"/> (2.9): which connections each user has open,
+    ///     who is online, and the means to abort a user or a single connection from outside the hub. The hub filter
+    ///     (registered by <see cref="AddSignalRSuperNetCoreCore"/>) keeps it current; without this call it does nothing.
+    /// </summary>
+    /// <remarks>
+    ///     Resolve it as <see cref="IG9UserConnectionIndex"/> (or as the concrete <see cref="G9CUserConnectionIndex"/>,
+    ///     the same singleton). Idempotent.
+    /// </remarks>
+    /// <param name="services">DI service collection.</param>
+    public static IServiceCollection AddG9SignalRSuperNetCoreConnectionIndex(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.TryAddSingleton<G9CUserConnectionIndex>();
+        services.TryAddSingleton<IG9UserConnectionIndex>(provider => provider.GetRequiredService<G9CUserConnectionIndex>());
         return services;
     }
 
@@ -273,13 +298,42 @@ public static class G9SignalRSuperNetCoreServer
     /// <param name="services">The DI service collection.</param>
     /// <param name="hubPath">The route path of the protected hub, e.g. <c>/SecureHub</c>.</param>
     /// <param name="validationParameters">The validation parameters that apply to <paramref name="hubPath"/>.</param>
+    /// <remarks>
+    ///     2.9: also registers the per-IP throttle of the JWT authorize route (<see cref="G9CAuthThrottle"/>) with its
+    ///     defaults, which are ON: 60 calls a minute with a burst of 20 per IP address. Use the overload with
+    ///     <c>configureAuth</c> to change or disable it.
+    /// </remarks>
     public static IServiceCollection AddSignalRSuperNetCoreJwt(
         this IServiceCollection services,
         string hubPath,
         TokenValidationParameters validationParameters)
+        => services.AddSignalRSuperNetCoreJwt(hubPath, validationParameters, configureAuth: null);
+
+    /// <summary>
+    ///     Configures JWT bearer authentication for one or more SignalR hubs like the overload without
+    ///     <paramref name="configureAuth"/>, and configures the authorize route itself (2.9): the per-IP throttle of
+    ///     <see cref="G9GetJwtHub.Authorize"/> through <see cref="G9DtJwtAuthOptions"/>.
+    /// </summary>
+    /// <param name="services">The DI service collection.</param>
+    /// <param name="hubPath">The route path of the protected hub, e.g. <c>/SecureHub</c>.</param>
+    /// <param name="validationParameters">The validation parameters that apply to <paramref name="hubPath"/>.</param>
+    /// <param name="configureAuth">
+    ///     Optional callback for <see cref="G9DtJwtAuthOptions"/>; the throttle is on (60 per minute, burst 20, per IP)
+    ///     unless it sets <see cref="G9DtJwtAuthOptions.ThrottleEnabled"/> to <c>false</c>. Callbacks from several calls
+    ///     all apply, in order.
+    /// </param>
+    public static IServiceCollection AddSignalRSuperNetCoreJwt(
+        this IServiceCollection services,
+        string hubPath,
+        TokenValidationParameters validationParameters,
+        Action<G9DtJwtAuthOptions>? configureAuth = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(hubPath);
         ArgumentNullException.ThrowIfNull(validationParameters);
+
+        services.AddOptions<G9DtJwtAuthOptions>();
+        if (configureAuth is not null) services.Configure(configureAuth);
+        services.TryAddSingleton<G9CAuthThrottle>();
 
         HubTokenValidationParameters[hubPath] = validationParameters;
 

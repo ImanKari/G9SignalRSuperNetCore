@@ -50,4 +50,16 @@ public static class G9CErrorCodes
 
     /// <summary>An upload id was resumed with metadata describing different content than it was begun with.</summary>
     public const string UploadMetadataConflict = "G9_UPLOAD_METADATA_CONFLICT";
+
+    /// <summary>
+    ///     The caller lacks an application-defined permission required by
+    ///     <see cref="Attributes.G9AttrRequirePermissionAttribute"/>, or no
+    ///     <see cref="Authorization.IG9HubPermissionHandler"/> is registered to grant it (2.9).
+    /// </summary>
+    public const string PermissionRequired = "G9_PERMISSION_REQUIRED";
+
+    /// <summary>
+    ///     The <see cref="FileUpload.G9DtUploadOptions.Authorize"/> hook refused a file-transfer operation (2.9).
+    /// </summary>
+    public const string UploadForbidden = "G9_UPLOAD_FORBIDDEN";
 }
