@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@g9tm/signalr-supernetcore-client": ["../client/src/index.ts"],
+      "@g9tm/signalr-supernetcore-client/node": ["../client/src/node/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "generated/**/*.ts"]
+}

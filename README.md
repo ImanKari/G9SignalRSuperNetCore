@@ -14,13 +14,14 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 
 > Drop reflection-based runtime proxies, get a build-time-generated typed client. Drop static per-process state, get a pluggable session store. Add `[G9AttrRateLimit]` to a method and you're rate-limited; add `[G9AttrTelemetry]` and you have OpenTelemetry traces. Keep the SignalR programming model you already know.
 
-**Current release: 2.9.0** — the four NuGet packages below, and the TypeScript twin `@g9/signalr-supernetcore-client` 2.9.0 for browser and Node front ends ([TypeScript client](#typescript-client-parity-rule)). See [What's new in 2.9](#29--scoped-rate-limits-auth-route-throttle-upload-ownership-permissions-connection-index-and-quality) and [2.8 → 2.9](#28--29).
+**Current release: 2.10.0** — the four NuGet packages below, and two npm packages: the TypeScript twin `@g9tm/signalr-supernetcore-client` 2.10.0 for browsers, Node **and Lynx**, and its Lynx platform layer `@g9tm/signalr-supernetcore-lynx` 2.10.0 ([TypeScript and Lynx clients](#typescript-client-parity-rule)). See [What's new in 2.10](#210--lynx-the-typescript-client-on-lynx-a-native-websocket-and-files-npm-under-g9tm) and [2.9 → 2.10](#29--210).
 
 ---
 
 ## Table of contents
 
 - [What's new](#whats-new)
+  - [2.10 — Lynx: the TypeScript client on Lynx, a native WebSocket and files, npm under @g9tm](#210--lynx-the-typescript-client-on-lynx-a-native-websocket-and-files-npm-under-g9tm)
   - [2.9 — Scoped rate limits, auth-route throttle, upload ownership, permissions, connection index and quality](#29--scoped-rate-limits-auth-route-throttle-upload-ownership-permissions-connection-index-and-quality)
   - [2.8 — Stateful reconnect and WebSockets-first (opt-in), thread-safe reconnect jitter, tagged releases](#28--stateful-reconnect-and-websockets-first-opt-in-thread-safe-reconnect-jitter-tagged-releases)
   - [2.7 — Awaited calls really wait, and four correctness fixes from an external review](#27--awaited-calls-really-wait-and-four-correctness-fixes-from-an-external-review)
@@ -70,6 +71,58 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 ---
 
 ## What's new
+
+### 2.10 — Lynx: the TypeScript client on Lynx, a native WebSocket and files, npm under @g9tm
+
+The .NET packages are unchanged; this release is about the TypeScript side, which now also runs on
+[Lynx](https://lynxjs.org) (ReactLynx apps on Android, iOS, Windows and macOS), and about one version for everything.
+
+**Added — the client runs on Lynx's background thread.** Lynx's JavaScript runtime has no `Blob`, `TextEncoder`,
+`btoa`/`atob`, `URL` or `crypto`, no `BigInt` you can rely on, and its release builds have **no WebSocket** (the
+devtool's `LynxWebSocketModule` is debug-only and text-only). The client no longer needs any of them: base64 and UTF-8
+are built in, uploads read any `G9ByteSource`, `downloadBytes()` needs no Blob, and `G9ClientOptions` takes a
+`webSocket` constructor, `skipNegotiation`, `eventSource`, `httpClient` and `httpTimeoutMs`. Every suite also runs in a
+Lynx-shaped sandbox (no `BigInt`, `Intl`, `TextEncoder`, `URL`, `Blob`, `WebSocket`; timers only as bundle-scope
+identifiers) so a dependency on a missing API fails in CI, not on a device.
+
+**Added — `@g9tm/signalr-supernetcore-lynx`, the Lynx platform layer.** A native module (`G9SignalRLynxModule`,
+linked by Lynx Autolink) gives Lynx a **binary** WebSocket — OkHttp on Android, `NSURLSessionWebSocketTask` on iOS, Node's
+WebSocket through a Lynxtron preload on Windows/macOS — so the MessagePack protocol works, plus the file access the
+transfers need. `createLynxClient(options)` picks everything: the native WebSocket straight to the hub (no negotiate
+request), the platform's WebSocket on Lynx for Web, or long polling over Lynx's `fetch` when there is no WebSocket at all
+(with a `URL` shim for negotiation).
+
+```ts
+import { createLynxClient, lynxFileSystem } from '@g9tm/signalr-supernetcore-lynx';
+import { G9FileUploader } from '@g9tm/signalr-supernetcore-client';
+import { MessagePackHubProtocol } from '@microsoft/signalr-protocol-msgpack';
+
+const client = createLynxClient({ url: 'https://host/chat', protocol: new MessagePackHubProtocol(), accessTokenFactory });
+await client.start();
+const result = await new G9FileUploader(client).uploadFile(photoPath, { fileSystem: lynxFileSystem() });
+```
+
+**Added — file transfers by path, exactly like .NET.** `G9FileUploader.uploadFile(path, { fileSystem })` computes the
+.NET upload id (`SHA-256(lower(fullPath)|length|lastWriteTicks)`) and `G9FileDownloader.downloadToFile(name, path,
+{ fileSystem })` is the twin of `DownloadAsync`: a `.partial` file that survives cancellation and restarts, SHA-256
+verification, an atomic rename, a result object. File systems: `nodeFileSystem` (`@g9tm/signalr-supernetcore-client/node`)
+and `lynxFileSystem()`. Two former "deliberate differences" of the TypeScript twin are gone.
+
+**Changed — npm scope `@g9tm`, one version.** The TypeScript twin is now `@g9tm/signalr-supernetcore-client` (it was
+`@g9/signalr-supernetcore-client`, never published). Both npm packages carry the NuGet version (2.10.0);
+`js/scripts/check-versions.mjs` fails the build when any of the version places drift. The release pipeline publishes them
+to npm when the `NpmToken` secret is set.
+
+**Verified.** 149 TypeScript unit tests (Node: 130 client, 19 Lynx package), the client and the Lynx package end to end
+in the Lynx-shaped sandbox, and
+**interop with the real ASP.NET Core sample server** from that sandbox over every path: JSON and MessagePack × {native
+WebSocket, native WebSocket after negotiation, long polling} — invocations, both stream directions, `G9Ping`, and files
+through `G9CUploadService`. The Android core (OkHttp socket, files) runs on the JVM (8 tests) and the module compiles
+against the published Lynx 4.1.0 classes with `lynx-processor` generating its Autolink provider; the iOS file core runs
+under GNUstep (14 checks). G9SyncData 1.2's TypeScript client runs its whole sync over this transport against the real G9SyncData server, in Node,
+in the Lynx-shaped sandbox, and on a real Lynx runtime (PrimJS on an Android emulator, this native module as packed —
+binary and text frames). What only a device can prove is listed in
+[`js/packages/lynx/Native-Validation-Pending.md`](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/js/packages/lynx/Native-Validation-Pending.md).
 
 ### 2.9 — Scoped rate limits, auth-route throttle, upload ownership, permissions, connection index and quality
 
@@ -488,7 +541,7 @@ Plain ASP.NET Core SignalR is excellent, but most teams end up writing the same 
 - **Per-user session abstraction** — thread-safe counters, last-activity tracking, cleanup helpers, swappable backend.
 - **Declarative policy attributes** — rate limiting (per connection, user or IP), connection caps, role/claim/permission guards, telemetry. Opt-in, lock-free, zero cost when unused.
 - **Resumable file upload** — chunk-streamed, SHA-256-verified, append-only, with live progress and safe resume on disconnect.
-- **A TypeScript twin** — `@g9/signalr-supernetcore-client` gives browser and Node front ends the same reconnect, JWT, file-transfer and quality features, kept in parity with the .NET client.
+- **A TypeScript twin, Lynx included** — `@g9tm/signalr-supernetcore-client` gives browser, Node and Lynx front ends the same reconnect, JWT, file-transfer and quality features, kept in parity with the .NET client; `@g9tm/signalr-supernetcore-lynx` adds the native WebSocket and file access Lynx lacks.
 - **Scale-out friendly** — no static per-process state on the correctness path.
 - **MAUI and NativeAOT friendly** — every hot path free of `Reflection.Emit` and runtime proxy generation.
 
@@ -503,7 +556,7 @@ Plain ASP.NET Core SignalR is excellent, but most teams end up writing the same 
 
 The source generator ships **inside the Server package** under `analyzers/dotnet/cs`. Consumers don't need a separate code-gen package; just reference `G9SignalRSuperNetCore.Server` (server) and `G9SignalRSuperNetCore.Client` (client) and the typed client lights up automatically.
 
-All four packages are versioned together (2.9.0), and their license is MIT. For browser and Node clients there is the npm package **`@g9/signalr-supernetcore-client`** 2.9.0 (peer dependency `@microsoft/signalr` ^10). It is built from [`js/`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js) in this repository; see [TypeScript client](#typescript-client-parity-rule).
+All four packages are versioned together (2.10.0), and their license is MIT. For browser, Node and Lynx clients there are the npm packages **`@g9tm/signalr-supernetcore-client`** 2.10.0 (peer dependency `@microsoft/signalr` ^10) and, for Lynx apps, **`@g9tm/signalr-supernetcore-lynx`** 2.10.0 (native module + Lynx defaults). Both are built from [`js/`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js) in this repository, with the same version as the NuGet packages; see [TypeScript and Lynx clients](#typescript-client-parity-rule).
 
 All packages target **.NET 10.0** and are AOT-compatible and trim-safe, the MessagePack packages included. **`G9SignalRSuperNetCore.Client` additionally targets `netstandard2.1`** for Unity 6 / engine runtimes (see [2.5.3](#253--client-multi-targets-netstandard21-unity)).
 
@@ -599,32 +652,32 @@ Then `dotnet publish -f net10.0-ios -c Release` should complete without trim or 
 - .NET 10.0 SDK or later
 - ASP.NET Core 10 project for the server
 - Any .NET 10 project for the client (console, MAUI, WPF, Blazor, ASP.NET, etc.), or a .NET Standard 2.1 runtime such as Unity 6 (see [2.5.3](#253--client-multi-targets-netstandard21-unity))
-- For the TypeScript client: Node 18+ or a modern browser, with `@microsoft/signalr` ^10
+- For the TypeScript client: Node 18+, a modern browser or Lynx (with `@g9tm/signalr-supernetcore-lynx`), with `@microsoft/signalr` ^10
 
 ### Install
 
 Server project:
 
 ```powershell
-dotnet add package G9SignalRSuperNetCore.Server --version 2.9.0
+dotnet add package G9SignalRSuperNetCore.Server --version 2.10.0
 ```
 
 Client project:
 
 ```powershell
-dotnet add package G9SignalRSuperNetCore.Client --version 2.9.0
+dotnet add package G9SignalRSuperNetCore.Client --version 2.10.0
 ```
 
 Optional, the binary MessagePack protocol (see [MessagePack hub protocol](#messagepack-hub-protocol-opt-in)):
 
 ```powershell
-dotnet add package G9SignalRSuperNetCore.Server.MessagePack --version 2.9.0   # server
-dotnet add package G9SignalRSuperNetCore.Client.MessagePack --version 2.9.0   # client
+dotnet add package G9SignalRSuperNetCore.Server.MessagePack --version 2.10.0   # server
+dotnet add package G9SignalRSuperNetCore.Client.MessagePack --version 2.10.0   # client
 ```
 
 The source generator is shipped inside the Server package (`analyzers/dotnet/cs`). Both project-reference and NuGet-reference flows pick it up automatically. Keep all G9 packages on the same version.
 
-Browser or Node front end: see [TypeScript client](#typescript-client-parity-rule) for installing `@g9/signalr-supernetcore-client` 2.9.0.
+Browser, Node or Lynx front end: see [TypeScript and Lynx clients](#typescript-client-parity-rule) for installing `@g9tm/signalr-supernetcore-client` 2.10.0 (and `@g9tm/signalr-supernetcore-lynx` on Lynx).
 
 ---
 
@@ -922,8 +975,8 @@ The generator ships **embedded inside the `G9SignalRSuperNetCore.Server` package
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.9.0" />
-  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.9.0" />
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.10.0" />
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.10.0" />
 </ItemGroup>
 ```
 
@@ -946,7 +999,7 @@ MyApp.Client/        // console / MAUI / WPF / Blazor
 ```xml
 <!-- MyApp.Shared.csproj -->
 <ItemGroup>
-  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.9.0" />
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.10.0" />
 </ItemGroup>
 
 <!-- MyApp.Server.csproj -->
@@ -957,7 +1010,7 @@ MyApp.Client/        // console / MAUI / WPF / Blazor
 <!-- MyApp.Client.csproj -->
 <ItemGroup>
   <ProjectReference Include="..\MyApp.Shared\MyApp.Shared.csproj" />
-  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.9.0" />
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.10.0" />
 </ItemGroup>
 ```
 
@@ -968,9 +1021,9 @@ The generator runs in `MyApp.Shared` (because that's where the hub class lives) 
 ```xml
 <!-- MyApp.Client.csproj -->
 <ItemGroup>
-  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.9.0"
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.10.0"
                     PrivateAssets="all" />        <!-- only the analyzer is needed -->
-  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.9.0" />
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.10.0" />
 </ItemGroup>
 ```
 
@@ -1193,26 +1246,28 @@ quality.Start();
 
 ## TypeScript client (parity rule)
 
-A TypeScript twin of the .NET client lives in [`js/`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js) of this repository as the npm package **`@g9/signalr-supernetcore-client`**, version 2.9.0 like the .NET packages. It is written separately, by another developer, against the same server. It calls the same hub methods and uses the same DTO member names and error codes, and it is the client that browser and Node front ends use. It ships as ESM with type declarations, runs in browsers and on Node 18+, and has one peer dependency, `@microsoft/signalr` ^10.
+A TypeScript twin of the .NET client lives in [`js/`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js) of this repository, an npm workspace with two packages, both versioned with the NuGet packages (2.10.0):
 
-**Install.** The release pipeline type-checks, tests and builds the package, but it does not publish it to the npm registry. Install it from a registry you publish it to, or from the packed tarball:
+| Package | What | Runs on |
+|---|---|---|
+| **`@g9tm/signalr-supernetcore-client`** ([`js/packages/client`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js/packages/client)) | The twin of `G9SignalRSuperNetCore.Client`: `G9Client`, `authorize`, the resumable uploader and downloader, the quality monitor, error codes. `./node` adds `nodeFileSystem` | browsers, WebViews, Node 18+, **Lynx** |
+| **`@g9tm/signalr-supernetcore-lynx`** ([`js/packages/lynx`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js/packages/lynx)) | The Lynx platform layer: the `G9SignalRLynxModule` native module (binary WebSocket + files; Android/iOS via Autolink, desktop via a Lynxtron preload), `createLynxClient`, `lynxFileSystem`, a `URL` shim | Lynx (Android, iOS, Windows, macOS, Web) |
+
+It calls the same hub methods and uses the same DTO member names and error codes as the .NET client. It ships as ESM with type declarations and has one peer dependency, `@microsoft/signalr` ^10.
+
+**Install.** The release pipeline type-checks, tests, builds and packs both packages with every release, and publishes them to npm when the `NpmToken` secret is configured:
 
 ```bash
-npm install @microsoft/signalr@^10
+npm install @microsoft/signalr@^10 @g9tm/signalr-supernetcore-client@2.10.0
+npm install @g9tm/signalr-supernetcore-lynx@2.10.0             # Lynx apps
+npm install @microsoft/signalr-protocol-msgpack@^10             # optional, binary frames
 
-# from a registry that carries it
-npm install @g9/signalr-supernetcore-client@2.9.0
-
-# or from the tarball: in js/, `npm pack` builds g9-signalr-supernetcore-client-2.9.0.tgz
-# (`npm run pack:vendor` builds it and copies it into the G9Hub web app's vendor/ folder)
-npm install ./vendor/g9-signalr-supernetcore-client-2.9.0.tgz
-
-# optional, binary frames
-npm install @microsoft/signalr-protocol-msgpack@^10
+# or from the tarballs: in js/, `npm run pack:all` writes both to js/artifacts/npm/
+# (`npm run pack:vendor -w packages/client` copies the client's into the G9Hub web app's vendor/ folder)
 ```
 
 ```ts
-import { authorize, G9Client } from '@g9/signalr-supernetcore-client';
+import { authorize, G9Client } from '@g9tm/signalr-supernetcore-client';
 
 const auth = await authorize('https://host/AuthHub', 'valid-credentials');   // a refusal is a result, not an exception
 if (!auth.isAccepted) throw new Error(auth.rejectionReason ?? 'refused');       // 'G9_RATE_LIMITED' when throttled (2.9)
@@ -1221,22 +1276,40 @@ await client.start();
 await client.invoke('SendMessage', 'Iman', 'Hello from the browser');
 ```
 
-The [package README](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/js/README.md) covers connecting, uploads, downloads and the quality monitor. [PARITY.md](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/js/PARITY.md) maps every .NET member to its TypeScript twin and lists the deliberate differences.
+The [client README](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/js/packages/client/README.md) covers connecting, uploads, downloads and the quality monitor. [PARITY.md](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/js/packages/client/PARITY.md) maps every .NET member to its TypeScript twin and lists the deliberate differences.
 
-**The rule: every change to the public surface of `G9SignalRSuperNetCore.Client` must be made in the TypeScript package in the same change, and vice versa.** That covers methods, options, reconnect behaviour, error codes and the file-transfer DTOs. A pull request that changes only one side is incomplete. The same applies to the server contract both clients depend on: hub method names (`BeginUpload`, `UploadChunks`, `BeginDownload`, `DownloadChunks`, `G9Ping`, `Authorize` / `AuthorizeResult`), DTO member names (they are the wire format), and the `G9_*` codes.
+### Lynx
 
-| .NET | TypeScript (`@g9/signalr-supernetcore-client`) | What must match |
+```ts
+import { createLynxClient, lynxAuthorize, lynxFileSystem } from '@g9tm/signalr-supernetcore-lynx';
+
+const auth = await lynxAuthorize('https://host/AuthHub', credentials);
+const client = createLynxClient({ url: 'https://host/SecureHub', accessTokenFactory: () => auth.jwToken! });
+await client.start();
+```
+
+- **Android:** Autolink links the module from `node_modules` (`lynx.lib.json`); it brings OkHttp 4.12 and the `INTERNET` permission.
+- **iOS:** CocoaPods Autolink adds the `g9tm-signalr-lynx` pod; register the module on the `LynxConfig`: `[config registerModule:G9SignalRLynxModule.class]` (Lynx 4.0.3 has no self-registration).
+- **Windows/macOS (Lynxtron):** in the preload, `contextBridge.exposeInLynxBTS({ g9signalr: createG9SignalRBridge(), …other APIs })` from `@g9tm/signalr-supernetcore-lynx/lynxtron`.
+
+The [Lynx README](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/js/packages/lynx/README.md) has the full host setup, the transport choices and what a device run still has to prove.
+
+### The rule
+
+**Every change to the public surface of `G9SignalRSuperNetCore.Client` must be made in the TypeScript package in the same change, and vice versa — and a change to the native module contract (`js/packages/lynx/types/g9-signalr-lynx-module.d.ts`) is made on Android, iOS and the Lynxtron bridge in the same change.** That covers methods, options, reconnect behaviour, error codes and the file-transfer DTOs. A pull request that changes only one side is incomplete. The same applies to the server contract every client depends on: hub method names (`BeginUpload`, `UploadChunks`, `BeginDownload`, `DownloadChunks`, `G9Ping`, `Authorize` / `AuthorizeResult`), DTO member names (they are the wire format), and the `G9_*` codes. The repository's [AGENTS.md](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/AGENTS.md) spells out the checklist.
+
+| .NET | TypeScript (`@g9tm/signalr-supernetcore-client`) | What must match |
 |---|---|---|
 | `G9SignalRSuperNetCoreClient` | `G9Client` | One connection per client, the stateful-reconnect options and the state reporting. The defaults differ on purpose: the TypeScript client retries the first connect, restarts after a final close and turns stateful reconnect on (see PARITY.md). |
 | `G9CClientReconnectPolicy` | `G9ReconnectPolicy` | `G9ReconnectPolicy.exponential()` reproduces the .NET curve: 200 ms base, ×2 per attempt, 30 s cap, ±15% jitter, 5-minute budget. `fromDelegate` is the custom-delegate escape hatch. The TypeScript client's default policy is a schedule that never gives up. |
-| `G9CFileUploader` | `G9FileUploader` | The `BeginUpload` / `UploadChunks` protocol, a deterministic upload id (derived from different inputs on each platform), the SHA-256 declaration, resume from `BytesAlreadyReceived`, waiting up to `ReconnectGrace` (2 min) for the connection before `BeginUpload` (2.9), retries with backoff, server-acknowledged progress, and `StoredFileName` on the result (2.9). |
-| `G9CFileDownloader` | `G9FileDownloader` | The `BeginDownload` / `DownloadChunks` protocol, resume (from a `.partial` file in .NET, from the bytes already received in TypeScript), and SHA-256 verification before the result is handed over. |
+| `G9CFileUploader` | `G9FileUploader` | The `BeginUpload` / `UploadChunks` protocol, the upload id (`uploadFile(path)` computes the .NET one; a Blob or byte source uses `name\|size\|lastModified`), the SHA-256 declaration, resume from `BytesAlreadyReceived`, waiting up to `ReconnectGrace` (2 min) for the connection before `BeginUpload` (2.9), retries with backoff, server-acknowledged progress, and `StoredFileName` on the result (2.9). |
+| `G9CFileDownloader` | `G9FileDownloader` | The `BeginDownload` / `DownloadChunks` protocol, resume (`downloadToFile` from a `.partial` file exactly like .NET; `download`/`downloadBytes` from the bytes already received), and SHA-256 verification before the result is handed over. |
 | `WaitUntilConnectedAsync` (2.9) | `waitUntilConnected()` / `client.waitUntilConnected()` | Returns at once when connected; otherwise completes on a reconnect or a 100 ms state poll, and times out. Never starts the connection. |
 | `G9CConnectionQualityMonitor` | `G9ConnectionQualityMonitor` | Probing `G9Ping` every 5 s by default. Good < 150 ms, Fair < 400 ms, Poor at ≥ 400 ms or after 1 failed probe, Lost after 3 failures in a row or whenever the connection is not connected. `RttMs = -1` without a measurement; the change event fires only when the level changes. |
 | `G9CErrorCodes` (server constants) | `G9ErrorCodes` | The same `G9_*` strings, including 2.9's `G9_PERMISSION_REQUIRED` and `G9_UPLOAD_FORBIDDEN`. |
 | JWT authorize (`AuthorizeAsync` on `G9SignalRSuperNetCoreClientWithJWTAuth`) | `authorize()` | Sending `Authorize(payload)` on the auth route and resolving with the `AuthorizeResult` callback (`IsAccepted`, `RejectionReason`, `JWToken`, `ExtraData`). That includes the `G9_RATE_LIMITED` rejection from the 2.9 throttle. |
 
-Public surface that is not in the table follows the same rule under the TypeScript naming conventions. The TypeScript tests (`js/test/parity.test.ts`) read the .NET sources and fail when the error codes, the file-transfer and authorize DTO member names, the upload status values or the quality thresholds drift apart.
+Public surface that is not in the table follows the same rule under the TypeScript naming conventions. The TypeScript tests (`js/packages/client/test/parity.test.ts`) read the .NET sources and fail when the error codes, the file-transfer and authorize DTO member names, the upload status values or the quality thresholds drift apart; in CI a missing source folder is a failure, not a skip. `js/scripts/check-versions.mjs` keeps the versions in step.
 
 ## Policy attributes
 
@@ -1807,22 +1880,29 @@ dotnet run --project G9SignalRSuperNetCore/G9SignalRSuperNetCore.ConsoleClient -
 ```
 
 ```bash
-# The TypeScript client (from js/)
-npm ci && npm run typecheck && npm test && npm run build
+# The TypeScript and Lynx packages (from js/)
+npm ci
+npm run verify                                   # versions, typecheck, tests, Lynx-sandbox tests, build, Lynx runtime gate
+npm run test:interop -w packages/lynx            # the Lynx-shaped sandbox against the real sample server (dotnet run)
+npm run test:android-jvm -w packages/lynx        # Android core (OkHttp socket, files) on the JVM — JDK 17+ and Gradle 8.14
+npm run check:android-module -w packages/lynx    # the module against the Lynx 4.1.0 classes + Autolink provider check
+npm run test:ios-core -w packages/lynx           # iOS file core under GNUstep (Linux, or WSL on Windows)
+npm run pack:all                                 # both tarballs into js/artifacts/npm
 ```
 
-The Release build is warning-clean across all nine projects. CI runs through `azure-pipelines.yml` on `main`. It builds, runs the .NET tests, type-checks, tests and builds the TypeScript client, and only then publishes the four NuGet packages.
+The Release build is warning-clean across all nine projects. CI runs through `azure-pipelines.yml` on `main`. It builds, runs the .NET tests, verifies the TypeScript and Lynx packages (including the interop run against the sample server and the Android checks), and only then publishes the NuGet and npm packages.
 
 ### Releases
 
-A release is a version bump: set `<G9PackageVersion>` in `G9SignalRSuperNetCore/Directory.Build.props` (the one coordinate all four packages and the embedded generator are built from), add the entry under [What's new](#whats-new), and push to `main`. Under the parity rule the TypeScript twin carries the same version: bump `version` in `js/package.json` and the exported `VERSION` in `js/src/index.ts` in the same change (`js/test/misc.test.ts` expects that value, so update it there too). The pipeline does the rest, in this order:
+A release is a version bump: set `<G9PackageVersion>` in `G9SignalRSuperNetCore/Directory.Build.props` (the one coordinate all four packages and the embedded generator are built from), add the entry under [What's new](#whats-new), and push to `main`. Under the parity rule the npm packages carry the same version: bump `version` in `js/packages/*/package.json`, the `@g9tm/signalr-supernetcore-client` pins in `js/packages/lynx/package.json`, the exported `VERSION` in both `src/index.ts`, the native module versions (Android `G9SignalRLynxModule.VERSION`, iOS `G9SignalRLynxVersion` and the podspec, the Lynxtron bridge) and `js/packages/client/test/misc.test.ts`. `npm run check:versions` lists every place that disagrees. The pipeline does the rest, in this order:
 
-1. build, then the .NET tests, then the TypeScript client (`npm ci`, type-check, tests, build);
+1. build, then the .NET tests, then the TypeScript/Lynx workspace (`npm ci`, `npm run verify`, the interop run, the Android JVM and module checks, `npm run pack:all`);
 2. push the four packages to nuget.org (`--skip-duplicate`, so re-running a version that is already there is harmless);
-3. **tag the released commit** `v<version>` (2.8+), an annotated tag, e.g. `v2.9.0`;
-4. sync the repository, tags included, to the GitHub mirror.
+3. publish the two npm packages (only when the `NpmToken` secret exists; a version already on npm is skipped);
+4. **tag the released commit** `v<version>` (2.8+), an annotated tag, e.g. `v2.10.0`;
+5. sync the repository, tags included, to the GitHub mirror.
 
-The pipeline does not publish the TypeScript package to npm; produce its tarball with `npm pack` (or `npm run pack:vendor`) in `js/`.
+**npm setup (one time).** Create the npm organization `g9tm` (free for public packages), an *automation* access token with publish rights to it, and a secret pipeline variable `NpmToken` holding it. Without the variable the publish step logs that it skipped and the tarballs are still attached to the run as the `npm` artifact.
 
 The tag step runs only on `main` and only when everything before it succeeded, so a tag always names a commit whose packages are on NuGet. It reads the version from `Directory.Build.props` and checks that each package glob holds a `.nupkg` of exactly that version before tagging. A tag that already exists is left where it is — tags are never moved. A tagging problem is reported as a warning and the run ends as *succeeded with issues*: by then the packages are public, and a red release would say the opposite.
 
@@ -1837,12 +1917,22 @@ Releases before 2.8.0 were not tagged. To tag one by hand: `git tag -a v2.7.0 <c
 ├── README.md                                               # this file (also packed into every NuGet package)
 ├── LICENSE.md                                              # MIT
 ├── .gitignore                                              # excludes uploads/, partials, build.log
-├── azure-pipelines.yml                                     # build, tests, TypeScript client, NuGet push, tag, mirror
-├── js/                                                     # npm: @g9/signalr-supernetcore-client (TypeScript twin)
-│   ├── src/                                                # G9Client, authorize, uploader/downloader, quality monitor
-│   ├── test/                                               # vitest, incl. parity.test.ts against the .NET sources
-│   ├── README.md, PARITY.md, LICENSE.md
-│   └── scripts/pack-vendor.mjs                             # npm run pack:vendor
+├── AGENTS.md, CLAUDE.md                                    # how agents (and people) keep the .NET and Lynx/TS sides in step
+├── azure-pipelines.yml                                     # build, tests, TS/Lynx verify + interop, NuGet + npm push, tag, mirror
+├── js/                                                     # npm workspace (version = G9PackageVersion)
+│   ├── packages/client/                                    # @g9tm/signalr-supernetcore-client (TypeScript twin, browser/Node/Lynx)
+│   │   ├── src/                                            # G9Client, authorize, uploader/downloader, quality monitor, byte sources,
+│   │   │                                                   # file systems (src/node: nodeFileSystem), base64/UTF-8 without web APIs
+│   │   ├── test/                                           # vitest, incl. parity.test.ts against the .NET sources; test/lynxsim
+│   │   └── README.md, PARITY.md, LICENSE.md
+│   ├── packages/lynx/                                      # @g9tm/signalr-supernetcore-lynx (Lynx platform layer)
+│   │   ├── src/                                            # createLynxClient, G9LynxWebSocket, lynxFileSystem, URL shim, src/lynxtron (desktop bridge)
+│   │   ├── types/ generated/ lynx.lib.json                 # the native module contract (codegen input/output) + Autolink
+│   │   ├── android/ jvm/ android-check/                    # Kotlin module (OkHttp), JVM tests, compile check vs Lynx 4.1.0
+│   │   ├── ios/                                            # Objective-C module (NSURLSession) + podspec; ios/Tests/linux (GNUstep)
+│   │   ├── test/                                           # unit, test/lynxsim (Lynx-shaped sandbox), test/interop (real .NET server)
+│   │   └── README.md, Native-Validation-Pending.md
+│   └── scripts/                                            # lynx-sandbox.mjs, check-versions.mjs, check-lynx-runtime.mjs, pack-all.mjs
 └── G9SignalRSuperNetCore/                                  # the .NET solution (below)
 
 G9SignalRSuperNetCore/
@@ -1892,6 +1982,18 @@ G9SignalRSuperNetCore/
 ---
 
 ## Migration guide
+
+### 2.9 → 2.10
+
+The .NET packages need nothing: their code is the same as 2.9.0. For TypeScript consumers:
+
+1. **Rename the import.** `@g9/signalr-supernetcore-client` is now `@g9tm/signalr-supernetcore-client` (same API). A
+   G9Hub-style vendored tarball is now `g9tm-signalr-supernetcore-client-2.10.0.tgz`.
+2. **Additive API:** `G9ByteSource` / `bytesSource` / `toByteSource`, `G9FileSystem` / `fileByteSource`,
+   `G9FileUploader.uploadFile`, `G9FileDownloader.downloadBytes` / `downloadToFile`, `G9ClientOptions.webSocket` /
+   `eventSource` / `skipNegotiation` / `httpClient` / `httpTimeoutMs`, the `./node` entry (`nodeFileSystem`), and
+   `base64ToBytes` / `bytesToBase64` / `utf8Encode` / `utf8Decode`. `upload()` still takes a Blob or File.
+3. **Lynx apps** add `@g9tm/signalr-supernetcore-lynx` and build clients with `createLynxClient` (see [Lynx](#lynx)).
 
 ### 2.8 → 2.9
 
@@ -2057,12 +2159,15 @@ The 2.x line is shipped as a sequence of focused milestones.
 - **2.8 — Connection options (shipped).**
   - `G9DtClientConnectionOptions` through the `ConfigureConnectionOptions` hook: stateful reconnect (with `allowStatefulReconnects` on the server mapping helpers and `AddG9SignalRSuperNetCoreStatefulReconnect`), and WebSockets first with a fallback to negotiation that keeps the `HubConnection`.
   - Thread-safe jitter in `G9CClientReconnectPolicy`; `Microsoft.Extensions.Http.Resilience` on the 10.x line; releases tagged `v<version>` by the pipeline.
-- **2.9 — Ownership and abuse controls (this release, 2.9.0).** See [2.9](#29--scoped-rate-limits-auth-route-throttle-upload-ownership-permissions-connection-index-and-quality).
+- **2.9 — Ownership and abuse controls (shipped).** See [2.9](#29--scoped-rate-limits-auth-route-throttle-upload-ownership-permissions-connection-index-and-quality).
   - Rate-limit scopes (`Connection` / `User` / `Ip`) with shared buckets freed by the last connection; slow rates enforced as written.
   - Per-IP throttle on the JWT authorize route, on by default (`G9DtJwtAuthOptions`).
   - Upload ownership: `PerUserNamespace`, `RandomizeCommittedNames`, `StoredFileName`, the `Authorize` hook, owner-aware service overloads, and a hosted cleanup that removes `.bin` and `.meta` together.
   - `[G9AttrRequirePermission]` + `IG9HubPermissionHandler`; `IG9UserConnectionIndex` (online users, abort a user); `G9Ping` + `G9CConnectionQualityMonitor`; `WaitUntilConnectedAsync`; telemetry `SampleRate`.
   - IL2070 gone: streaming is detected from the declared return type. The TypeScript client (`js/`, `@g9/signalr-supernetcore-client`) is kept in parity with the .NET client.
+- **2.10 — Lynx (this release, 2.10.0).** See [2.10](#210--lynx-the-typescript-client-on-lynx-a-native-websocket-and-files-npm-under-g9tm).
+  - npm under `@g9tm`: `@g9tm/signalr-supernetcore-client` (renamed from `@g9/…`) and `@g9tm/signalr-supernetcore-lynx` — a native binary WebSocket and file operations for Android, iOS and Lynxtron, proven on a real Lynx runtime (Android emulator).
+  - The .NET packages are unchanged apart from the version.
 - **Next (planned).** Cluster-wide rate limits and connection index through `IG9DistributedBackplane` (Redis package); shared-storage upload partials for cross-node resume; BenchmarkDotNet suite.
 
 The order can shift in response to consumer feedback; track progress in the issues board.
@@ -2075,11 +2180,11 @@ Issues and pull requests are welcome.
 2. Match the existing code style: file-scoped namespaces, XML docs on public members, `G9` prefix on public types, `G9C…` for concrete classes, `G9A…` for abstracts, `G9Dt…` for DTOs, `G9Attr…` for attributes, `G9E…` for enums.
 3. `dotnet build -c Release` must finish with zero warnings — including AOT and trim warnings attributable to G9 code — and `dotnet test` must pass.
 4. Update or add a sample under `G9SignalRSuperNetCore.WebServer` / `G9SignalRSuperNetCore.ConsoleClient` when adding new public surface.
-5. A change to the public surface of the .NET client (or to the hub contract it uses) lands in `js/` in the same change, with [PARITY.md](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/js/PARITY.md) updated, and `npm run typecheck && npm test` in `js/` must pass. See [the parity rule](#typescript-client-parity-rule).
+5. A change to the public surface of the .NET client (or to the hub contract it uses) lands in `js/` in the same change, with [PARITY.md](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/js/packages/client/PARITY.md) updated, and `npm run verify` in `js/` must pass. A change to the native module contract lands on Android, iOS and the Lynxtron bridge together. See [the parity rule](#typescript-client-parity-rule) and [AGENTS.md](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/AGENTS.md).
 6. New cryptographic code (in 2.4+) must use BCL primitives only and ship with property-based tests.
 
 ## License
 
 Released under the [MIT License](https://github.com/ImanKari/G9SignalRSuperNetCore/blob/main/LICENSE.md). Copyright (c) 2024-present Iman Kari (G9TM).
 
-The same license text ships as `LICENSE.md` in every NuGet package and in the npm package `@g9/signalr-supernetcore-client`.
+The same license text ships as `LICENSE.md` in every NuGet package and in the npm packages `@g9tm/signalr-supernetcore-client` and `@g9tm/signalr-supernetcore-lynx`.

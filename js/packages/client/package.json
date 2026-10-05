@@ -1,0 +1,71 @@
+{
+  "name": "@g9tm/signalr-supernetcore-client",
+  "version": "2.10.0",
+  "description": "TypeScript twin of the G9SignalRSuperNetCore .NET client for browsers, Node and Lynx: resilient connection, JWT authorize route, resumable file upload/download, connection quality monitor and error codes.",
+  "license": "MIT",
+  "author": "Iman Kari (G9TM)",
+  "homepage": "https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js/packages/client",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ImanKari/G9SignalRSuperNetCore.git",
+    "directory": "js/packages/client"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./dist/node/index.js",
+      "default": "./dist/node/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "PARITY.md",
+    "LICENSE.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "signalr",
+    "g9",
+    "supernetcore",
+    "lynx",
+    "resumable-upload",
+    "reconnect"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "build": "node scripts/clean.mjs && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "test:lynxsim": "vitest run --config vitest.lynxsim.config.ts",
+    "test:watch": "vitest",
+    "prepack": "npm run build",
+    "pack:vendor": "npm run build && node scripts/pack-vendor.mjs"
+  },
+  "peerDependencies": {
+    "@microsoft/signalr": "^10.0.0"
+  },
+  "devDependencies": {
+    "@microsoft/signalr": "^10.0.11",
+    "@microsoft/signalr-protocol-msgpack": "^10.0.11",
+    "@types/node": "^22.15.0",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.1"
+  }
+}

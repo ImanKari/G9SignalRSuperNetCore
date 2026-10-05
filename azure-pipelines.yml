@@ -169,16 +169,43 @@ steps:
       projects: '${{ parameters.testProjects }}'
       arguments: '--configuration $(buildConfiguration)'
 
-# The TypeScript twin (js/, @g9/signalr-supernetcore-client) mirrors the .NET client under the parity rule (js/PARITY.md):
-# it is type-checked, tested and built before anything is published, so a release never leaves the two out of step.
+# The TypeScript/Lynx workspace (js/: @g9tm/signalr-supernetcore-client + @g9tm/signalr-supernetcore-lynx) mirrors the
+# .NET client under the parity rule (AGENTS.md, js/packages/client/PARITY.md) and carries the same version: it is
+# verified, run against the real sample server, its Android code is checked, and it is packed BEFORE anything is
+# published, so a release never leaves the sides out of step.
 - task: NodeTool@0
-  displayName: Node.js 22 (TypeScript client)
+  displayName: Node.js 22 (TypeScript/Lynx packages)
   inputs:
     versionSpec: '22.x'
 
-- script: npm ci --no-audit --no-fund && npm run typecheck && npm test && npm run build
-  displayName: TypeScript client - typecheck, tests, build
+- script: npm ci --no-audit --no-fund && npm run verify
+  displayName: TypeScript/Lynx - versions, typecheck, tests, Lynx sandbox, build, Lynx runtime gate
   workingDirectory: js
+  env:
+    CI: 'true'
+
+- script: npm run test:interop -w packages/lynx
+  displayName: Lynx - interop with the real sample server (JSON + MessagePack, every transport path)
+  workingDirectory: js
+  env:
+    CI: 'true'
+
+# Kotlin 2.3 needs JDK 17+; the hosted image's Gradle runs the JVM suite and the compile check against Lynx 4.1.0.
+- script: npm run test:android-jvm -w packages/lynx && npm run check:android-module -w packages/lynx
+  displayName: Lynx - Android core on the JVM, module compile check (Autolink provider)
+  workingDirectory: js
+  env:
+    JAVA_HOME: $(JAVA_HOME_17_X64)
+
+- script: npm run pack:all
+  displayName: TypeScript/Lynx - pack
+  workingDirectory: js
+
+- task: PublishPipelineArtifact@1
+  displayName: Attach the npm tarballs
+  inputs:
+    targetPath: js/artifacts/npm
+    artifact: npm
 
 # Validate and publish NuGet packages
 - ${{ each packagePath in parameters.nugetPackages }}:
@@ -274,6 +301,43 @@ steps:
         Write-Host "`n==============================================="
         Write-Host "Package Publishing Process Complete"
         Write-Host "==============================================="
+
+# Publish the npm packages (2.10+), after the NuGet pushes and before the tag, under the same rules: only on main, a
+# version already on npm is skipped (re-running a release is harmless), and the step needs the secret variable NpmToken
+# (an npm automation token of the g9tm organization). Without it the step says so and the tarballs stay attached above.
+- task: PowerShell@2
+  displayName: "Publish npm packages (@g9tm)"
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  env:
+    NPM_TOKEN: $(NpmToken)
+  inputs:
+    targetType: 'inline'
+    workingDirectory: js
+    script: |
+      if ([string]::IsNullOrWhiteSpace($env:NPM_TOKEN) -or $env:NPM_TOKEN -eq '$(NpmToken)') {
+          Write-Host "##vso[task.logissue type=warning]NpmToken is not set: the npm packages were packed (artifact 'npm') but not published."
+          exit 0
+      }
+      $npmrc = Join-Path $env:AGENT_TEMPDIRECTORY 'g9tm.npmrc'
+      Set-Content -LiteralPath $npmrc -Value "//registry.npmjs.org/:_authToken=$($env:NPM_TOKEN)`nregistry=https://registry.npmjs.org/"
+      try {
+          foreach ($tarball in Get-ChildItem -Path 'artifacts/npm' -Filter '*.tgz') {
+              # name@version from the tarball's package.json
+              $manifest = (& tar -xOzf $tarball.FullName package/package.json) | ConvertFrom-Json
+              $id = "$($manifest.name)@$($manifest.version)"
+              $existing = & npm view $id version --userconfig $npmrc 2>$null
+              if ($LASTEXITCODE -eq 0 -and $existing) {
+                  Write-Host "$id is already on npm; skipping."
+                  continue
+              }
+              & npm publish $tarball.FullName --access public --userconfig $npmrc
+              if ($LASTEXITCODE -ne 0) { throw "npm publish failed for $id (exit code $LASTEXITCODE)." }
+              Write-Host "Published $id"
+          }
+      }
+      finally {
+          Remove-Item -LiteralPath $npmrc -Force -ErrorAction SilentlyContinue
+      }
 
 # Tag the release as v<version> (2.8+). Only on main, and only when everything above succeeded - the tests and ALL the package
 # pushes - so a tag always names a commit whose packages are on NuGet. It sits BEFORE the GitHub sync on purpose: the sync

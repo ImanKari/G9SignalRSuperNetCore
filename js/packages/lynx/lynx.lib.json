@@ -1,0 +1,12 @@
+{
+  "platforms": {
+    "android": {
+      "packageName": "com.g9tm.signalrlynx",
+      "sourceDir": "android"
+    },
+    "ios": {
+      "sourceDir": "ios",
+      "podspecPath": "ios/g9tm-signalr-lynx.podspec"
+    }
+  }
+}
