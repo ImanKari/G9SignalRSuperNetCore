@@ -113,6 +113,9 @@ class G9SocketCoreTest {
     server.enqueue(MockResponse().withWebSocketUpgrade(echo))
     call { core.open("b", url(), emptyList(), emptyMap(), it) }
     until("b", "open")
+    // The client can see its open before MockWebServer's listener (another thread) has run onOpen: wait for it.
+    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+    while (serverSockets.isEmpty() && System.nanoTime() < deadline) Thread.sleep(5)
     serverSockets.single().close(4001, "kicked")
     val close = until("b", "close").last()
     assertEquals(4001, close["code"])
