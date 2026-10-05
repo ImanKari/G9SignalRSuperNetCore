@@ -12,6 +12,19 @@ interface Echo {
   closeClients(code: number, reason: string): void;
 }
 
+/**
+ * A local port nothing listens on: bound, then closed, so a connect is refused at once. A fixed low port (it was
+ * `127.0.0.1:1`) can be dropped by a firewall instead of refused — the hosted Windows agents do — and the connect then
+ * waits for TCP's own timeout (~21 s on Windows).
+ */
+async function closedPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as { port: number }).port;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
 async function echoServer(): Promise<Echo> {
   const server = createServer();
   const wss = new WebSocketServer({ server, handleProtocols: (set) => (set.has('g9') ? 'g9' : false) });
@@ -106,9 +119,10 @@ describe.each(natives())('G9LynxWebSocket over the %s', (_name, native) => {
 
   it('fails to connect with error then close (1006), never open', async () => {
     const Socket = createLynxWebSocket({ native });
-    const socket = new Socket('ws://127.0.0.1:1/nothing-listens-here');
+    const socket = new Socket(`ws://127.0.0.1:${await closedPort()}/nothing-listens-here`);
     const events = collect(socket);
-    await until(() => socket.readyState === 3, 10000);
+    // Windows retries a refused connect for about 2 s before it reports it.
+    await until(() => socket.readyState === 3, 20000);
     expect(events.map((e) => e.type)).not.toContain('open');
     expect(events.at(-1)).toMatchObject({ type: 'close', code: 1006, wasClean: false });
   });
