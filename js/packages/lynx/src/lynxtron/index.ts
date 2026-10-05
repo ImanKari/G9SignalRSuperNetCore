@@ -117,7 +117,19 @@ export function createG9SignalRBridge(options: G9SignalRBridgeOptions = {}): Rec
       socket.binaryType = 'arraybuffer';
       const state: SocketState = { socket, queue: [], waiter: null, closed: false };
       sockets.set(socketId, state);
-      socket.onopen = () => push(state, { type: 'open', protocol: socket.protocol || '' });
+      let opened = false;
+      let fallback: ReturnType<typeof setTimeout> | null = null;
+      const finish = (code: number, reason: string, wasClean: boolean): void => {
+        if (fallback !== null) clearTimeout(fallback);
+        fallback = null;
+        if (state.closed) return;
+        state.closed = true;
+        push(state, { type: 'close', code, reason, wasClean });
+      };
+      socket.onopen = () => {
+        opened = true;
+        push(state, { type: 'open', protocol: socket.protocol || '' });
+      };
       socket.onmessage = (event) => {
         const data = event.data;
         if (typeof data === 'string') push(state, { type: 'text', data });
@@ -126,12 +138,21 @@ export function createG9SignalRBridge(options: G9SignalRBridgeOptions = {}): Rec
       socket.onerror = (event) => {
         const message = (event as { message?: unknown; error?: { message?: unknown } })?.message ?? (event as { error?: { message?: unknown } })?.error?.message;
         push(state, { type: 'error', message: typeof message === 'string' ? message : 'WebSocket error.' });
+        // Node 22's WebSocket (undici 6 — also inside Lynxtron, which embeds Node 22) reports a refused connect with
+        // `error` and then NEVER with `close`: readyState stays CONNECTING forever. A connect that failed ends here;
+        // after an open, the real close gets a second to arrive. A late real close is then ignored (state.closed).
+        if (!opened) {
+          finish(1006, '', false);
+          try {
+            socket.close();
+          } catch {
+            // already dead
+          }
+        } else if (fallback === null) {
+          fallback = setTimeout(() => finish(1006, '', false), 1000);
+        }
       };
-      socket.onclose = (event) => {
-        if (state.closed) return;
-        state.closed = true;
-        push(state, { type: 'close', code: event?.code ?? 1006, reason: event?.reason ?? '', wasClean: event?.wasClean === true });
-      };
+      socket.onclose = (event) => finish(event?.code ?? 1006, event?.reason ?? '', event?.wasClean === true);
       return ok();
     },
 

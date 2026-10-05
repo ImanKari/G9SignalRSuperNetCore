@@ -2167,6 +2167,7 @@ The 2.x line is shipped as a sequence of focused milestones.
   - IL2070 gone: streaming is detected from the declared return type. The TypeScript client (`js/`, `@g9/signalr-supernetcore-client`) is kept in parity with the .NET client.
 - **2.10 — Lynx (this release, 2.10.0).** See [2.10](#210--lynx-the-typescript-client-on-lynx-a-native-websocket-and-files-npm-under-g9tm).
   - npm under `@g9tm`: `@g9tm/signalr-supernetcore-client` (renamed from `@g9/…`) and `@g9tm/signalr-supernetcore-lynx` — a native binary WebSocket and file operations for Android, iOS and Lynxtron, proven on a real Lynx runtime (Android emulator).
+  - Lynxtron: a refused connect ends the socket on Node 22 too (its WebSocket reports `error` and never `close`).
   - The .NET packages are unchanged apart from the version.
 - **Next (planned).** Cluster-wide rate limits and connection index through `IG9DistributedBackplane` (Redis package); shared-storage upload partials for cross-node resume; BenchmarkDotNet suite.
 
