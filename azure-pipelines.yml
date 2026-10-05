@@ -350,7 +350,7 @@ steps:
 # pushes - so a tag always names a commit whose packages are on NuGet. It sits BEFORE the GitHub sync on purpose: the sync
 # clones this repository afterwards, so the new tag is in that clone and travels to the mirror with the credentials the sync
 # already uses. A tag that exists is never moved. Tagging never fails the release: the packages are already public by now.
-# Needs "Create tag" = Allow for the build service identity on this repository (see README, "Build and test" > "Releases").
+# Needs "Contribute" and "Create tag" = Allow for the build service identity on this repository (see README, "Releases").
 - task: PowerShell@2
   displayName: "Tag the release (v<version>)"
   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
@@ -397,7 +397,7 @@ steps:
           if ($LASTEXITCODE -ne 0) { throw "git tag failed with exit code $LASTEXITCODE." }
 
           git -c http.extraheader="$auth" push origin "refs/tags/$tag"
-          if ($LASTEXITCODE -ne 0) { throw "git push of $tag failed with exit code $LASTEXITCODE. Does the build service identity have 'Create tag' on this repository?" }
+          if ($LASTEXITCODE -ne 0) { throw "git push of $tag failed with exit code $LASTEXITCODE. Does the build service identity have 'Contribute' and 'Create tag' on this repository?" }
 
           Write-Host "Tagged $env:BUILD_SOURCEVERSION as $tag."
       }
