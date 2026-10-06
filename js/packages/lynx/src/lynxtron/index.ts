@@ -93,7 +93,7 @@ export function createG9SignalRBridge(options: G9SignalRBridgeOptions = {}): Rec
 
   return {
     async capabilities() {
-      return ok({ webSocket: typeof Impl === 'function', binary: true, files: true, platform: 'lynxtron', version: '2.10.0' });
+      return ok({ webSocket: typeof Impl === 'function', binary: true, files: true, platform: 'lynxtron', version: '2.10.1' });
     },
 
     async wsOpen(socketId: string, url: string, protocols: string[], headers: Record<string, string>) {

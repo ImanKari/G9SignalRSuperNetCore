@@ -1,6 +1,6 @@
 {
   "name": "@g9tm/signalr-supernetcore-lynx",
-  "version": "2.10.0",
+  "version": "2.10.1",
   "description": "Lynx support for the G9SignalRSuperNetCore TypeScript client: a binary WebSocket native module (Android OkHttp, iOS URLSessionWebSocketTask, Lynxtron/Node), runtime shims and a ready-made G9Client factory for the Lynx background thread.",
   "license": "MIT",
   "author": "Iman Kari (G9TM)",
@@ -65,11 +65,11 @@
     "prepack": "npm run build"
   },
   "peerDependencies": {
-    "@g9tm/signalr-supernetcore-client": "2.10.0",
+    "@g9tm/signalr-supernetcore-client": "2.10.1",
     "@microsoft/signalr": "^10.0.0"
   },
   "devDependencies": {
-    "@g9tm/signalr-supernetcore-client": "2.10.0",
+    "@g9tm/signalr-supernetcore-client": "2.10.1",
     "@lynx-js/autolink-codegen": "0.6.0",
     "@microsoft/signalr": "^10.0.11",
     "@microsoft/signalr-protocol-msgpack": "^10.0.11",

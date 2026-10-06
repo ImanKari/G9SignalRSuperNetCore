@@ -1,7 +1,7 @@
 # @g9tm/signalr-supernetcore-lynx
 
 The [Lynx](https://lynxjs.org) platform layer of
-[`@g9tm/signalr-supernetcore-client`](../client/README.md) (release **2.10.0**, the version of the G9SignalRSuperNetCore
+[`@g9tm/signalr-supernetcore-client`](../client/README.md) (release **2.10.1**, the version of the G9SignalRSuperNetCore
 NuGet packages). The client itself is runtime-neutral; Lynx's background thread lacks what a SignalR client needs, and
 this package supplies it:
 
@@ -15,7 +15,7 @@ this package supplies it:
 ## Install
 
 ```bash
-npm install @g9tm/signalr-supernetcore-lynx@2.10.0 @g9tm/signalr-supernetcore-client@2.10.0 @microsoft/signalr@^10
+npm install @g9tm/signalr-supernetcore-lynx@2.10.1 @g9tm/signalr-supernetcore-client@2.10.1 @microsoft/signalr@^10
 npm install @microsoft/signalr-protocol-msgpack@^10    # optional, binary frames (recommended on mobile)
 ```
 
@@ -105,7 +105,7 @@ npm run test:lynxsim          # the package bundled and run in a Lynx-shaped san
 npm run test:interop          # the sandbox against the real .NET sample server: JSON + MessagePack × every transport path
 npm run test:android-jvm      # Kotlin core (OkHttp socket, files) on the JVM
 npm run check:android-module  # the module compiled against the Lynx 4.1.0 classes; Autolink provider generated
-npm run test:ios-core         # iOS file core under GNUstep (Linux / WSL)
+npm run test:ios-core         # iOS file core: Apple clang on macOS, GNUstep on Linux / WSL
 ```
 
 What only a device can prove is listed in [Native-Validation-Pending.md](./Native-Validation-Pending.md).

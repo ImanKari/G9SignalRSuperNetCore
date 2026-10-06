@@ -22,7 +22,7 @@ import java.util.concurrent.Executors
 @LynxNativeModule(name = "G9SignalRLynxModule")
 class G9SignalRLynxModule(context: LynxContext) : G9SignalRLynxModuleSpec(context) {
   companion object {
-    const val VERSION = "2.10.0"
+    const val VERSION = "2.10.1"
     val sockets: G9SocketCore by lazy { G9SocketCore() }
     private val files: ExecutorService by lazy {
       Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "g9-signalr-files").apply { isDaemon = true } }

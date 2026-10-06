@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
-# Builds and runs the iOS file core (ios/src/core/G9SignalRFileCore.m) with its Linux suite: clang + GNUstep base.
-# Needs: apt-get install -y clang make libgnustep-base-dev gobjc. On Windows `npm run test:ios-core` runs this in WSL.
+# Builds and runs the iOS file core (ios/src/core/G9SignalRFileCore.m) with its suite (ios/Tests/linux/main.m).
+# Linux: clang + GNUstep base. Needs: apt-get install -y clang make libgnustep-base-dev gobjc. On Windows
+# `npm run test:ios-core` runs this in WSL.
+# macOS: Apple clang against the real Foundation; nothing to install beyond the Xcode command line tools.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [ "$(uname -s)" = Darwin ]; then
+  mkdir -p build/ios-core
+  clang -fobjc-arc -framework Foundation -Werror=objc-method-access -o build/ios-core/ios-core-tests \
+    ios/src/core/G9SignalRFileCore.m ios/Tests/linux/main.m
+  exec build/ios-core/ios-core-tests
+fi
 flags=$(gnustep-config --objc-flags | tr ' ' '\n' | grep -v '^-M' | tr '\n' ' ')
 libs=$(gnustep-config --base-libs)
 if [ -z "$flags" ] || [ -z "$libs" ]; then

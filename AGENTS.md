@@ -33,6 +33,9 @@ A task that changes the client contract is done only when **every side has it**,
    `packages/native/scripts` — keep the three copies identical.
 4. **Version**: `<G9PackageVersion>` in `G9SignalRSuperNetCore/Directory.Build.props` is the single coordinate.
    `npm run check:versions` (in `js/`) lists every other place that must equal it.
+   Both npm packages live in the npm organization `g9tm` (`@g9tm/…`) and carry exactly that version.
+   **CI is Azure Pipelines only** (definition 17): test, pack, publish NuGet + npm, tag, then mirror to GitHub, which is a
+   read-only copy (no `.github/workflows`). After a release, upgrade every consumer and bump its own version.
 5. **Docs** move with the code: root `README.md` (What's new + Migration), the package READMEs, PARITY.md.
 
 A behaviour that cannot exist on one side (a file path on a browser, a `Blob` in .NET) is a *documented* difference in
@@ -60,7 +63,7 @@ cd js && npm ci && npm run verify          # versions, typecheck, tests, lynxsim
 npm run test:interop -w packages/lynx      # Lynx sandbox vs the real sample server (needs the .NET SDK)
 npm run test:android-jvm -w packages/lynx  # Kotlin core on the JVM (JDK 17+, Gradle 8.14; scripts/run-gradle.mjs finds them)
 npm run check:android-module -w packages/lynx   # compile + LynxBridgeSignatureTest (Lynx's own signature builder)
-npm run test:ios-core -w packages/lynx     # GNUstep (Linux / WSL)
+npm run test:ios-core -w packages/lynx     # Apple clang on macOS, GNUstep on Linux / WSL
 # On a real Lynx runtime (Android emulator): G9SyncData's js/apps/lynx-android-host runs a full sync over this module.
 ```
 

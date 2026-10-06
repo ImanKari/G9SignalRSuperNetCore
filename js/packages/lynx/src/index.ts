@@ -1,4 +1,4 @@
-// @g9tm/signalr-supernetcore-lynx — the Lynx platform layer of @g9tm/signalr-supernetcore-client (2.10.0).
+// @g9tm/signalr-supernetcore-lynx — the Lynx platform layer of @g9tm/signalr-supernetcore-client (2.10.1).
 // The client (G9Client, authorize, transfers, quality monitor) is runtime-neutral; this package adds what Lynx lacks:
 // a binary WebSocket (native module on Android/iOS, the Lynxtron preload on desktop), file access for the .NET-twin
 // file transfers, a URL shim for negotiation, and a factory that picks all of it.
@@ -7,7 +7,7 @@
 // Lynxtron bridge in the same change.
 
 /** The package version (kept equal to the .NET library release and to the client package). */
-export const VERSION = '2.10.0';
+export const VERSION = '2.10.1';
 
 export {
   createLynxClient,

@@ -1,6 +1,6 @@
 {
   "name": "@g9tm/signalr-supernetcore-client",
-  "version": "2.10.0",
+  "version": "2.10.1",
   "description": "TypeScript twin of the G9SignalRSuperNetCore .NET client for browsers, Node and Lynx: resilient connection, JWT authorize route, resumable file upload/download, connection quality monitor and error codes.",
   "license": "MIT",
   "author": "Iman Kari (G9TM)",

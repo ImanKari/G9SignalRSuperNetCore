@@ -1,6 +1,6 @@
 # Parity: `G9SignalRSuperNetCore.Client` (.NET) ↔ `@g9tm/signalr-supernetcore-client` (TypeScript)
 
-Release 2.10.0 on both sides. The Lynx platform layer (`@g9tm/signalr-supernetcore-lynx`) has its own contract — the
+Release 2.10.1 on both sides. The Lynx platform layer (`@g9tm/signalr-supernetcore-lynx`) has its own contract — the
 native module — mapped at the end of this file.
 
 **Parity rule.** Every change to the public surface of `G9SignalRSuperNetCore.Client` (methods, options, reconnect

@@ -4,7 +4,7 @@
 
 typedef void (^G9Reply)(id envelope);
 
-static NSString *const G9SignalRLynxVersion = @"2.10.0";
+static NSString *const G9SignalRLynxVersion = @"2.10.1";
 
 @implementation G9SignalRLynxModule
 

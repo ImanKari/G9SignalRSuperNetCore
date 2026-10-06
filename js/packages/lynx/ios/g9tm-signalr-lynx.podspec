@@ -2,7 +2,7 @@
 # registers the module on its LynxConfig: [config registerModule:G9SignalRLynxModule.class].
 Pod::Spec.new do |s|
   s.name = 'g9tm-signalr-lynx'
-  s.version = '2.10.0'
+  s.version = '2.10.1'
   s.summary = 'G9SignalRLynxModule: a binary WebSocket (NSURLSessionWebSocketTask) and file access for the G9SignalRSuperNetCore Lynx client.'
   s.homepage = 'https://github.com/ImanKari/G9SignalRSuperNetCore'
   s.license = { :type => 'MIT' }
@@ -10,6 +10,9 @@ Pod::Spec.new do |s|
   s.platform = :ios, '15.0'
   s.source = { :path => '.' }
   s.source_files = 'src/**/*.{h,m}'
+  # Keep src/'s folders in the public headers: G9SignalRLynxModule.h imports "generated/G9SignalRLynxModuleSpec.h", which a flattened
+  # Pods/Headers/Public cannot resolve from the host app (found building an iOS host on macOS, 2026-10-06).
+  s.header_mappings_dir = 'src'
   s.frameworks = 'Foundation'
   s.requires_arc = true
   s.dependency 'Lynx', '4.0.3'

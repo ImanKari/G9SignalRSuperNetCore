@@ -1,6 +1,6 @@
 # @g9tm/signalr-supernetcore-client
 
-TypeScript twin of the **G9SignalRSuperNetCore** .NET client (release **2.10.0**) for browsers (SvelteKit SPA,
+TypeScript twin of the **G9SignalRSuperNetCore** .NET client (release **2.10.1**) for browsers (SvelteKit SPA,
 Capacitor WebView, Tauri WebView), Node 18+ and **Lynx** (ReactLynx apps: Android, iOS, Windows, macOS, Web — add
 [`@g9tm/signalr-supernetcore-lynx`](../lynx/README.md) for the native WebSocket and file access Lynx lacks).
 
@@ -33,18 +33,18 @@ type-checks, tests, builds and packs this package with every release and publish
 pipeline has an `NpmToken`:
 
 ```bash
-npm install @microsoft/signalr@^10 @g9tm/signalr-supernetcore-client@2.10.0
+npm install @microsoft/signalr@^10 @g9tm/signalr-supernetcore-client@2.10.1
 
 # optional, for binary frames:
 npm install @microsoft/signalr-protocol-msgpack@^10
 
 # or from a tarball (see below)
-npm install ./vendor/g9tm-signalr-supernetcore-client-2.10.0.tgz
+npm install ./vendor/g9tm-signalr-supernetcore-client-2.10.1.tgz
 ```
 
 Making the tarball:
 
-- `npm pack` in this folder builds the package (`prepack`) and writes `g9tm-signalr-supernetcore-client-2.10.0.tgz`;
+- `npm pack` in this folder builds the package (`prepack`) and writes `g9tm-signalr-supernetcore-client-2.10.1.tgz`;
   `npm run pack:all` in `js/` packs both workspace packages into `js/artifacts/npm/`.
 - `npm run pack:vendor` does the same and moves the `.tgz` into the G9Hub web app's `vendor/` folder
   (`../../../../G9Hub/web/vendor/` from this folder), which is where the G9Hub SPA installs it from.
@@ -251,7 +251,7 @@ npm run build        # tsc → dist/ (ES2019 ESM + .d.ts)
 npm run pack:vendor  # build + npm pack + copy to the G9Hub web app's vendor/
 ```
 
-The package version follows the .NET release (2.10.0): `npm run check:versions` in `js/` lists every place that must
+The package version follows the .NET release (2.10.1): `npm run check:versions` in `js/` lists every place that must
 equal `G9PackageVersion` in `Directory.Build.props`.
 
 ## License
