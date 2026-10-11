@@ -20,6 +20,8 @@ dependencies {
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
   testImplementation("junit:junit:4.13.2")
   testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+  // A self-signed TLS server for the host-client test (G9SocketCoreTest: wss through a host trust policy).
+  testImplementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
 }
 
 tasks.test {

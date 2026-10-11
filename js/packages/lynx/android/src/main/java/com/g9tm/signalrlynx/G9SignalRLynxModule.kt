@@ -10,6 +10,7 @@ import com.lynx.react.bridge.Callback
 import com.lynx.react.bridge.ReadableArray
 import com.lynx.react.bridge.ReadableMap
 import com.lynx.tasm.behavior.LynxContext
+import okhttp3.OkHttpClient
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -23,7 +24,25 @@ import java.util.concurrent.Executors
 class G9SignalRLynxModule(context: LynxContext) : G9SignalRLynxModuleSpec(context) {
   companion object {
     const val VERSION = "2.10.1"
-    val sockets: G9SocketCore by lazy { G9SocketCore() }
+
+    @Volatile private var hostClient: (() -> OkHttpClient)? = null
+    private val socketCore = lazy { G9SocketCore(G9SocketCore.webSocketClient(hostClient?.invoke())) }
+    val sockets: G9SocketCore by socketCore
+
+    /**
+     * Android host hook: the OkHttpClient the module's WebSockets derive from — the app's TLS policy (for example a
+     * debug build that trusts its dev server's self-signed certificate for that host only), proxy, interceptors and
+     * connection pool. The sockets keep the WebSocket timeouts ([G9SocketCore.webSocketClient]). Call it once from
+     * `Application.onCreate`, before any page opens a socket; [client] is invoked lazily, on the first `wsOpen`, so the
+     * app's client is not built during startup. Without it the module uses a client of its own with the platform's
+     * default trust.
+     */
+    @JvmStatic
+    fun useHttpClient(client: () -> OkHttpClient) {
+      check(!socketCore.isInitialized()) { "G9SignalRLynxModule.useHttpClient must be called before the first wsOpen." }
+      hostClient = client
+    }
+
     private val files: ExecutorService by lazy {
       Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "g9-signalr-files").apply { isDaemon = true } }
     }

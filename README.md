@@ -73,6 +73,17 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 
 ## What's new
 
+### Unreleased — Android host hook: the app's OkHttpClient for the Lynx WebSocket
+
+`@g9tm/signalr-supernetcore-lynx` (Android): `G9SignalRLynxModule.useHttpClient { client }` lets the host app hand its own
+`OkHttpClient` (read lazily, at the first `wsOpen`) to the module's WebSockets — its TLS policy (e.g. a debug build that trusts its dev server's self-signed
+certificate for that host only), proxy, interceptors and connection pool. The sockets keep their WebSocket timeouts
+(read 0, ping 0, connect 20 s, write 30 s; `G9SocketCore.webSocketClient(base)`). Call it from `Application.onCreate`
+before any page opens a socket; without it nothing changes. Host-side Kotlin only: the JS contract
+(`types/g9-signalr-lynx-module.d.ts`) is unchanged. iOS has no equivalent yet (a documented difference: the iOS module
+uses `NSURLSession`'s default trust). Tests: `G9SocketCoreTest` (the derived client keeps the host's policy; `wss://` to
+a self-signed server fails with the default client and opens through a trusting host client).
+
 ### 2.10.1 — The iOS Lynx module builds in a host app
 
 A packaging fix for `@g9tm/signalr-supernetcore-lynx` on iOS; nothing else changed. The .NET packages and the TypeScript

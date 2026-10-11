@@ -165,10 +165,10 @@ export class G9LynxWebSocket {
       try {
         listener.call(this, event);
       } catch (error) {
-        // A throwing handler must not stop the socket; surface it like the platform would.
-        setTimeout(() => {
-          throw error;
-        }, 0);
+        // A throwing handler must not stop the socket. Logged, not re-thrown: SignalR throws from its own message
+        // handler on a handshake error it has already handled (the start promise rejects), and a re-throw becomes a
+        // Lynx runtime error (code 201) — crash-report noise for every transient handshake failure.
+        console.error(`G9LynxWebSocket: a '${event.type}' listener threw:`, error);
       }
     }
     return true;

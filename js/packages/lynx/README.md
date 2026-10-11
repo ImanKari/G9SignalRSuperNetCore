@@ -26,6 +26,11 @@ The package is a Lynx native library (`lynx.lib.json`), like G9LynxControls' `@g
 - **Android** — Lynx Autolink links `android/` from `node_modules` (`com.g9tm.signalrlynx`, module
   `G9SignalRLynxModule`); `lynx-processor` generates the provider that registers it. The library brings OkHttp 4.12
   (an app on OkHttp 5 resolves to that) and the `INTERNET` permission. minSdk 26, compileSdk 36, Lynx 4.1.0.
+  The sockets use a client of the module's own unless the app hands over its `OkHttpClient` (its TLS policy, proxy,
+  interceptors, connection pool) from `Application.onCreate`, before any page opens a socket:
+  ```kotlin
+  G9SignalRLynxModule.useHttpClient { appHttpClient }   // read lazily at the first wsOpen; WebSocket timeouts re-applied
+  ```
 - **iOS** — CocoaPods Autolink adds the `g9tm-signalr-lynx` pod (iOS 15, Lynx 4.0.3). Lynx 4.0.3 has no
   self-registration: register the module where you build the `LynxConfig`:
   ```objc

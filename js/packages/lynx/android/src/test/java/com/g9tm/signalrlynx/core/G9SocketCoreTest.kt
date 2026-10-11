@@ -1,14 +1,18 @@
 package com.g9tm.signalrlynx.core
 
+import okhttp3.OkHttpClient
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.tls.HandshakeCertificates
+import okhttp3.tls.HeldCertificate
 import okio.ByteString
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -16,6 +20,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.HostnameVerifier
 
 /** The socket half of the module contract against a real WebSocket server (OkHttp's MockWebServer). */
 class G9SocketCoreTest {
@@ -180,5 +185,53 @@ class G9SocketCoreTest {
     assertTrue("events arrived batched", batch.size > 2)
     core.close("e", 1000, "") {}
     until("e", "close")
+  }
+
+  @Test
+  fun webSocketClientKeepsTheHostPolicyAndSetsTheWebSocketTimeouts() {
+    val verifier = HostnameVerifier { _, _ -> true }
+    val base =
+      OkHttpClient.Builder()
+        .hostnameVerifier(verifier)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .pingInterval(30, TimeUnit.SECONDS)
+        .build()
+    val ws = G9SocketCore.webSocketClient(base)
+    assertSame(verifier, ws.hostnameVerifier)
+    assertSame(base.connectionPool, ws.connectionPool)
+    assertSame(base.dispatcher, ws.dispatcher)
+    assertEquals(0, ws.readTimeoutMillis)
+    assertEquals(0, ws.pingIntervalMillis)
+    assertEquals(20_000, ws.connectTimeoutMillis)
+    assertEquals(30_000, ws.writeTimeoutMillis)
+  }
+
+  /** wss:// to a self-signed server: refused with the default client, open through a host client that trusts it. */
+  @Test
+  fun aHostClientCarriesItsTrustToTheSockets() {
+    val serverCert = HeldCertificate.Builder().addSubjectAlternativeName(server.hostName).build()
+    server.useHttps(HandshakeCertificates.Builder().heldCertificate(serverCert).build().sslSocketFactory(), false)
+    val wss = server.url("/hub").toString().replace("https://", "wss://")
+
+    server.enqueue(MockResponse().withWebSocketUpgrade(echo))
+    call { core.open("tls-default", wss, emptyList(), emptyMap(), it) }
+    assertEquals(listOf("error", "close"), until("tls-default", "close").map { it["type"] })
+
+    val trusting = HandshakeCertificates.Builder().addTrustedCertificate(serverCert.certificate).build()
+    val host = OkHttpClient.Builder().sslSocketFactory(trusting.sslSocketFactory(), trusting.trustManager).build()
+    val hosted = G9SocketCore(G9SocketCore.webSocketClient(host))
+    server.enqueue(MockResponse().withWebSocketUpgrade(echo))
+    val replies = LinkedBlockingQueue<Map<String, Any?>>()
+    hosted.open("tls-host", wss, emptyList(), emptyMap()) { replies.add(it) }
+    assertEquals(true, replies.poll(10, TimeUnit.SECONDS)!!["ok"])
+    var opened = false
+    while (!opened) {
+      hosted.poll("tls-host") { replies.add(it) }
+      @Suppress("UNCHECKED_CAST")
+      val events = ((replies.poll(10, TimeUnit.SECONDS)!!["value"] as Map<String, Any?>)["events"] as List<Map<String, Any?>>)
+      assertTrue("no error over the trusted TLS socket: $events", events.none { it["type"] == "error" })
+      opened = events.any { it["type"] == "open" }
+    }
+    hosted.close("tls-host", 1000, "") {}
   }
 }

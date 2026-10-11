@@ -18,9 +18,16 @@ import java.util.concurrent.TimeUnit
  */
 class G9SocketCore(private val client: OkHttpClient = defaultClient()) {
   companion object {
-    /** Read timeout 0: a WebSocket is idle between messages; SignalR's own keep-alive detects a dead peer. */
-    fun defaultClient(): OkHttpClient =
-      OkHttpClient.Builder()
+    fun defaultClient(): OkHttpClient = webSocketClient(null)
+
+    /**
+     * The WebSocket client derived from a host's [base] client (null = a fresh one). The host's TLS policy (socket
+     * factory, trust manager, hostname verifier), proxy, interceptors, dispatcher and connection pool are kept; the
+     * timeouts are the WebSocket's own: read 0 and ping 0 (a socket is idle between messages, and SignalR's keep-alive
+     * detects a dead peer), connect 20 s, write 30 s.
+     */
+    fun webSocketClient(base: OkHttpClient?): OkHttpClient =
+      (base?.newBuilder() ?: OkHttpClient.Builder())
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
