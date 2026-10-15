@@ -1,7 +1,7 @@
 # @g9tm/signalr-supernetcore-lynx
 
 The [Lynx](https://lynxjs.org) platform layer of
-[`@g9tm/signalr-supernetcore-client`](../client/README.md) (release **2.10.1**, the version of the G9SignalRSuperNetCore
+[`@g9tm/signalr-supernetcore-client`](../client/README.md) (release **2.11.0**, the version of the G9SignalRSuperNetCore
 NuGet packages). The client itself is runtime-neutral; Lynx's background thread lacks what a SignalR client needs, and
 this package supplies it:
 
@@ -15,7 +15,7 @@ this package supplies it:
 ## Install
 
 ```bash
-npm install @g9tm/signalr-supernetcore-lynx@2.10.1 @g9tm/signalr-supernetcore-client@2.10.1 @microsoft/signalr@^10
+npm install @g9tm/signalr-supernetcore-lynx@2.11.0 @g9tm/signalr-supernetcore-client@2.11.0 @microsoft/signalr@^10
 npm install @microsoft/signalr-protocol-msgpack@^10    # optional, binary frames (recommended on mobile)
 ```
 

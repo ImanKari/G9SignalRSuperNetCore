@@ -49,16 +49,16 @@
 	     Http.Resilience is what the public G9CHttpResilience is built on (ResilienceHandler, and Polly's ResiliencePipeline<T>
 	     in its signatures), so it cannot go without breaking that API. It is on the 10.x line like everything else here, at
 	     the FLOOR of that line: a package dependency is a minimum, its Microsoft.Extensions.* needs (10.0.0) stay below what
-	     SignalR.Client 10.0.8 already brings, and an app that wants a newer one references it and wins. -->
+	     SignalR.Client 10.0.13 already brings, and an app that wants a newer one references it and wins. -->
 	<ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-		<PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.8" />
+		<PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
 		<PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.0.0" />
 	</ItemGroup>
 
 	<!-- netstandard2.1: Unity 6-compatible surface. SignalR.Client 8.x ships a netstandard2.0 asset.
 	     Http.Resilience (net8+) and the file-transfer client are excluded on this TFM (see Compile Remove below). -->
 	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
-		<PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.11" />
+		<PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.32" />
 	</ItemGroup>
 
 	<!-- Files that depend on net8+ APIs are not compiled into the netstandard2.1 (Unity) build. -->

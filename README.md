@@ -14,13 +14,14 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 
 > Drop reflection-based runtime proxies, get a build-time-generated typed client. Drop static per-process state, get a pluggable session store. Add `[G9AttrRateLimit]` to a method and you're rate-limited; add `[G9AttrTelemetry]` and you have OpenTelemetry traces. Keep the SignalR programming model you already know.
 
-**Current release: 2.10.1** — the four NuGet packages below, and two npm packages: the TypeScript twin `@g9tm/signalr-supernetcore-client` 2.10.1 for browsers, Node **and Lynx**, and its Lynx platform layer `@g9tm/signalr-supernetcore-lynx` 2.10.1 ([TypeScript and Lynx clients](#typescript-client-parity-rule)). See [What's new in 2.10.1](#2101--the-ios-lynx-module-builds-in-a-host-app) and [2.10](#210--lynx-the-typescript-client-on-lynx-a-native-websocket-and-files-npm-under-g9tm), and [2.9 → 2.10](#29--210).
+**Current release: 2.11.0** — the four NuGet packages below, and two npm packages: the TypeScript twin `@g9tm/signalr-supernetcore-client` 2.11.0 for browsers, Node **and Lynx**, and its Lynx platform layer `@g9tm/signalr-supernetcore-lynx` 2.11.0 ([TypeScript and Lynx clients](#typescript-client-parity-rule)). See [What's new in 2.11.0](#2110--android-host-hook-for-the-lynx-websocket-a-throwing-listener-is-logged-not-re-thrown), [2.10.1](#2101--the-ios-lynx-module-builds-in-a-host-app) and [2.10](#210--lynx-the-typescript-client-on-lynx-a-native-websocket-and-files-npm-under-g9tm), and [2.9 → 2.10](#29--210).
 
 ---
 
 ## Table of contents
 
 - [What's new](#whats-new)
+  - [2.11.0 — Android host hook for the Lynx WebSocket; a throwing listener is logged, not re-thrown](#2110--android-host-hook-for-the-lynx-websocket-a-throwing-listener-is-logged-not-re-thrown)
   - [2.10.1 — The iOS Lynx module builds in a host app](#2101--the-ios-lynx-module-builds-in-a-host-app)
   - [2.10 — Lynx: the TypeScript client on Lynx, a native WebSocket and files, npm under @g9tm](#210--lynx-the-typescript-client-on-lynx-a-native-websocket-and-files-npm-under-g9tm)
   - [2.9 — Scoped rate limits, auth-route throttle, upload ownership, permissions, connection index and quality](#29--scoped-rate-limits-auth-route-throttle-upload-ownership-permissions-connection-index-and-quality)
@@ -73,7 +74,20 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 
 ## What's new
 
-### Unreleased — Android host hook: the app's OkHttpClient for the Lynx WebSocket
+### 2.11.0 — Android host hook for the Lynx WebSocket; a throwing listener is logged, not re-thrown
+
+A security update of the .NET client's dependency, and two changes in `@g9tm/signalr-supernetcore-lynx` found running a
+Lynx app against a development server. The server packages and the TypeScript client change only their version.
+
+- **`Microsoft.AspNetCore.SignalR.Client` 10.0.8 → 10.0.13 (net10.0) and 8.0.11 → 8.0.32 (netstandard2.1)** in
+  `G9SignalRSuperNetCore.Client` (and so `.Client.MessagePack`): the versions before them pull a
+  `Microsoft.AspNetCore.SignalR.Common` with a high-severity advisory (CVE-2026-70159, GHSA-334f-vvp4-7g6p), which
+  every consumer saw as NuGet audit warning NU1903. No API change.
+- **A throwing WebSocket listener is logged, not re-thrown** (`src/webSocket.ts`). SignalR throws from its own
+  message handler on a handshake error it has already handled (the start promise rejects); the re-throw became a Lynx
+  runtime error (code 201) — crash-report noise for every transient handshake failure. The socket keeps running either way.
+- **Android host hook: the app's OkHttpClient for the WebSocket.**
+
 
 `@g9tm/signalr-supernetcore-lynx` (Android): `G9SignalRLynxModule.useHttpClient { client }` lets the host app hand its own
 `OkHttpClient` (read lazily, at the first `wsOpen`) to the module's WebSockets — its TLS policy (e.g. a debug build that trusts its dev server's self-signed
@@ -133,7 +147,7 @@ verification, an atomic rename, a result object. File systems: `nodeFileSystem` 
 and `lynxFileSystem()`. Two former "deliberate differences" of the TypeScript twin are gone.
 
 **Changed — npm scope `@g9tm`, one version.** The TypeScript twin is now `@g9tm/signalr-supernetcore-client` (it was
-`@g9/signalr-supernetcore-client`, never published). Both npm packages carry the NuGet version (2.10.1);
+`@g9/signalr-supernetcore-client`, never published). Both npm packages carry the NuGet version (2.11.0);
 `js/scripts/check-versions.mjs` fails the build when any of the version places drift. The release pipeline publishes them
 to npm when the `NpmToken` secret is set.
 
@@ -580,7 +594,7 @@ Plain ASP.NET Core SignalR is excellent, but most teams end up writing the same 
 
 The source generator ships **inside the Server package** under `analyzers/dotnet/cs`. Consumers don't need a separate code-gen package; just reference `G9SignalRSuperNetCore.Server` (server) and `G9SignalRSuperNetCore.Client` (client) and the typed client lights up automatically.
 
-All four packages are versioned together (2.10.1), and their license is MIT. For browser, Node and Lynx clients there are the npm packages **`@g9tm/signalr-supernetcore-client`** 2.10.1 (peer dependency `@microsoft/signalr` ^10) and, for Lynx apps, **`@g9tm/signalr-supernetcore-lynx`** 2.10.1 (native module + Lynx defaults). Both are built from [`js/`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js) in this repository, with the same version as the NuGet packages; see [TypeScript and Lynx clients](#typescript-client-parity-rule).
+All four packages are versioned together (2.11.0), and their license is MIT. For browser, Node and Lynx clients there are the npm packages **`@g9tm/signalr-supernetcore-client`** 2.11.0 (peer dependency `@microsoft/signalr` ^10) and, for Lynx apps, **`@g9tm/signalr-supernetcore-lynx`** 2.11.0 (native module + Lynx defaults). Both are built from [`js/`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js) in this repository, with the same version as the NuGet packages; see [TypeScript and Lynx clients](#typescript-client-parity-rule).
 
 All packages target **.NET 10.0** and are AOT-compatible and trim-safe, the MessagePack packages included. **`G9SignalRSuperNetCore.Client` additionally targets `netstandard2.1`** for Unity 6 / engine runtimes (see [2.5.3](#253--client-multi-targets-netstandard21-unity)).
 
@@ -683,25 +697,25 @@ Then `dotnet publish -f net10.0-ios -c Release` should complete without trim or 
 Server project:
 
 ```powershell
-dotnet add package G9SignalRSuperNetCore.Server --version 2.10.1
+dotnet add package G9SignalRSuperNetCore.Server --version 2.11.0
 ```
 
 Client project:
 
 ```powershell
-dotnet add package G9SignalRSuperNetCore.Client --version 2.10.1
+dotnet add package G9SignalRSuperNetCore.Client --version 2.11.0
 ```
 
 Optional, the binary MessagePack protocol (see [MessagePack hub protocol](#messagepack-hub-protocol-opt-in)):
 
 ```powershell
-dotnet add package G9SignalRSuperNetCore.Server.MessagePack --version 2.10.1   # server
-dotnet add package G9SignalRSuperNetCore.Client.MessagePack --version 2.10.1   # client
+dotnet add package G9SignalRSuperNetCore.Server.MessagePack --version 2.11.0   # server
+dotnet add package G9SignalRSuperNetCore.Client.MessagePack --version 2.11.0   # client
 ```
 
 The source generator is shipped inside the Server package (`analyzers/dotnet/cs`). Both project-reference and NuGet-reference flows pick it up automatically. Keep all G9 packages on the same version.
 
-Browser, Node or Lynx front end: see [TypeScript and Lynx clients](#typescript-client-parity-rule) for installing `@g9tm/signalr-supernetcore-client` 2.10.1 (and `@g9tm/signalr-supernetcore-lynx` on Lynx).
+Browser, Node or Lynx front end: see [TypeScript and Lynx clients](#typescript-client-parity-rule) for installing `@g9tm/signalr-supernetcore-client` 2.11.0 (and `@g9tm/signalr-supernetcore-lynx` on Lynx).
 
 ---
 
@@ -999,8 +1013,8 @@ The generator ships **embedded inside the `G9SignalRSuperNetCore.Server` package
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.10.1" />
-  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.10.1" />
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.11.0" />
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.11.0" />
 </ItemGroup>
 ```
 
@@ -1023,7 +1037,7 @@ MyApp.Client/        // console / MAUI / WPF / Blazor
 ```xml
 <!-- MyApp.Shared.csproj -->
 <ItemGroup>
-  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.10.1" />
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.11.0" />
 </ItemGroup>
 
 <!-- MyApp.Server.csproj -->
@@ -1034,7 +1048,7 @@ MyApp.Client/        // console / MAUI / WPF / Blazor
 <!-- MyApp.Client.csproj -->
 <ItemGroup>
   <ProjectReference Include="..\MyApp.Shared\MyApp.Shared.csproj" />
-  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.10.1" />
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.11.0" />
 </ItemGroup>
 ```
 
@@ -1045,9 +1059,9 @@ The generator runs in `MyApp.Shared` (because that's where the hub class lives) 
 ```xml
 <!-- MyApp.Client.csproj -->
 <ItemGroup>
-  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.10.1"
+  <PackageReference Include="G9SignalRSuperNetCore.Server" Version="2.11.0"
                     PrivateAssets="all" />        <!-- only the analyzer is needed -->
-  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.10.1" />
+  <PackageReference Include="G9SignalRSuperNetCore.Client" Version="2.11.0" />
 </ItemGroup>
 ```
 
@@ -1270,7 +1284,7 @@ quality.Start();
 
 ## TypeScript client (parity rule)
 
-A TypeScript twin of the .NET client lives in [`js/`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js) of this repository, an npm workspace with two packages, both versioned with the NuGet packages (2.10.1):
+A TypeScript twin of the .NET client lives in [`js/`](https://github.com/ImanKari/G9SignalRSuperNetCore/tree/main/js) of this repository, an npm workspace with two packages, both versioned with the NuGet packages (2.11.0):
 
 | Package | What | Runs on |
 |---|---|---|
@@ -1282,8 +1296,8 @@ It calls the same hub methods and uses the same DTO member names and error codes
 **Install.** The release pipeline type-checks, tests, builds and packs both packages with every release, and publishes them to npm when the `NpmToken` secret is configured:
 
 ```bash
-npm install @microsoft/signalr@^10 @g9tm/signalr-supernetcore-client@2.10.1
-npm install @g9tm/signalr-supernetcore-lynx@2.10.1             # Lynx apps
+npm install @microsoft/signalr@^10 @g9tm/signalr-supernetcore-client@2.11.0
+npm install @g9tm/signalr-supernetcore-lynx@2.11.0             # Lynx apps
 npm install @microsoft/signalr-protocol-msgpack@^10             # optional, binary frames
 
 # or from the tarballs: in js/, `npm run pack:all` writes both to js/artifacts/npm/
@@ -2193,6 +2207,10 @@ The 2.x line is shipped as a sequence of focused milestones.
   - npm under `@g9tm`: `@g9tm/signalr-supernetcore-client` (renamed from `@g9/…`) and `@g9tm/signalr-supernetcore-lynx` — a native binary WebSocket and file operations for Android, iOS and Lynxtron, proven on a real Lynx runtime (Android emulator).
   - Lynxtron: a refused connect ends the socket on Node 22 too (its WebSocket reports `error` and never `close`).
   - The .NET packages are unchanged apart from the version.
+- **2.11 — Lynx host integration (2.11.0).** See [2.11.0](#2110--android-host-hook-for-the-lynx-websocket-a-throwing-listener-is-logged-not-re-thrown).
+  - Android: `G9SignalRLynxModule.useHttpClient` hands the app's `OkHttpClient` (TLS policy, proxy, interceptors) to the WebSockets.
+  - A throwing WebSocket listener is logged instead of re-thrown (no Lynx runtime error 201 on a handled handshake failure).
+  - Security: `Microsoft.AspNetCore.SignalR.Client` 10.0.13 / 8.0.32 (CVE-2026-70159 in `SignalR.Common`).
 - **Next (planned).** Cluster-wide rate limits and connection index through `IG9DistributedBackplane` (Redis package); shared-storage upload partials for cross-node resume; BenchmarkDotNet suite.
 
 The order can shift in response to consumer feedback; track progress in the issues board.
