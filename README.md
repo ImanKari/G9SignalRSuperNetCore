@@ -74,6 +74,27 @@ It bundles the things most SignalR projects end up reinventing — typed proxies
 
 ## What's new
 
+### 2.12.0 — Lynx: long polling when the server has no WebSockets; the URL shim replaces Lynx's incomplete URL
+
+Two changes in the TypeScript side, found syncing a Lynx app (AgriPad) against an IIS host without the WebSocket
+feature. The .NET packages change only their version: their client already takes combined transports
+(`HttpConnectionOptions.Transports`).
+
+- **`longPollingFallback`** (`@g9tm/signalr-supernetcore-lynx`, `lynxClientOptions` / `createLynxClient`): with the native
+  module, negotiate `WebSockets | LongPolling` — the native WebSocket when the server offers it and it opens, else HTTP
+  long polling over Lynx's `fetch`. Choice `native-websocket-or-long-polling`. Off by default (WebSockets straight, no
+  negotiation). In `@g9tm/signalr-supernetcore-client` the new transport value is `'websockets-or-longpolling'`
+  (never Server-Sent Events, which is text-only and cannot carry MessagePack).
+- **`installUrlShim` probes instead of checking presence.** Android Lynx 4.1's background thread HAS a global `URL`
+  with no usable `pathname`, so every NEGOTIATED connection failed on a device with "cannot read property 'endsWith' of
+  undefined" (also `skipNegotiation: false`). The shim now replaces a `URL` / `URLSearchParams` that cannot do
+  negotiate's work, as a pair (SignalR copies `url.searchParams` into a new `URLSearchParams`; mixing the two produced
+  `?_pairs=`), and `G9UrlSearchParams` is iterable.
+
+Proven: the interop suite against the real .NET sample hub (now 10 paths, incl. a negotiate answer without WebSockets),
+and on the Android emulator through a proxy that strips WebSockets from negotiate and refuses upgrades — the sample hub
+over JSON and MessagePack, and a G9SyncData site of 449,856 rows (32 MB) synced over long polling with Lynx's own `fetch`.
+
 ### 2.11.0 — Android host hook for the Lynx WebSocket; a throwing listener is logged, not re-thrown
 
 A security update of the .NET client's dependency, and two changes in `@g9tm/signalr-supernetcore-lynx` found running a

@@ -54,7 +54,7 @@ describe('public API', () => {
       'isAbortError',
     ];
     for (const name of expected) expect(api, name).toHaveProperty(name);
-    expect(api.VERSION).toBe('2.11.0');
+    expect(api.VERSION).toBe('2.12.0');
     expect(Object.isFrozen(api.G9ErrorCodes)).toBe(true);
     expect(api.G9ErrorCodes.UploadForbidden).toBe('G9_UPLOAD_FORBIDDEN');
     expect(api.G9ErrorCodes.PermissionRequired).toBe('G9_PERMISSION_REQUIRED');

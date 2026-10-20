@@ -1,6 +1,6 @@
 # Parity: `G9SignalRSuperNetCore.Client` (.NET) ↔ `@g9tm/signalr-supernetcore-client` (TypeScript)
 
-Release 2.11.0 on both sides. The Lynx platform layer (`@g9tm/signalr-supernetcore-lynx`) has its own contract — the
+Release 2.12.0 on both sides. The Lynx platform layer (`@g9tm/signalr-supernetcore-lynx`) has its own contract — the
 native module — mapped at the end of this file.
 
 **Parity rule.** Every change to the public surface of `G9SignalRSuperNetCore.Client` (methods, options, reconnect
@@ -57,6 +57,7 @@ client-only enums become string unions; `DateTime` becomes epoch milliseconds.
 | `WebSocketsFirst` | n/a | SignalR JS reads the transport options of a `HubConnection` once, so the "same connection, negotiate on fallback" behaviour cannot be reproduced without private APIs; and with stateful reconnect on (the TS default) .NET ignores it too. Pin `transport: 'websockets'` if needed. |
 | (builder defaults) `Connection.ServerTimeout = 60 s` | `serverTimeoutMs` (default 30000), `keepAliveIntervalMs` (default 15000) | See differences. |
 | — | `transport`, `headers`, `withCredentials`, `logLevel`, `protocol`, `reconnectPolicy`, `connectionFactory` | JS equivalents of builder/HTTP options; `connectionFactory` replaces the builder (tests). |
+| `HttpConnectionOptions.Transports = WebSockets \| LongPolling` | `transport: 'websockets-or-longpolling'` (2.12) | Negotiates both; long polling when the server offers no WebSockets or the socket cannot open. The Lynx layer's `longPollingFallback` sets it with the native WebSocket. |
 | `configureHttpConnection` (`HttpConnectionOptions.WebSocketFactory`, `SkipNegotiation`, `HttpMessageHandlerFactory`, `CloseTimeout`) | `webSocket`, `skipNegotiation`, `httpClient`, `httpTimeoutMs`, `eventSource` (2.10) | The transport knobs a runtime without a global WebSocket/`URL` needs (Lynx). `skipNegotiation` requires `transport: 'websockets'` and turns the stateful-reconnect default off (it is negotiated). |
 
 ## `G9SignalRSuperNetCoreClientWithJWTAuth` ↔ `authorize()` + `G9Client`

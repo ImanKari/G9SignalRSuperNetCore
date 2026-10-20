@@ -1,10 +1,10 @@
-// @g9tm/signalr-supernetcore-client — TypeScript twin of the G9SignalRSuperNetCore .NET client (2.11.0), for
+// @g9tm/signalr-supernetcore-client — TypeScript twin of the G9SignalRSuperNetCore .NET client (2.12.0), for
 // browsers, Node and Lynx (the Lynx platform layer is @g9tm/signalr-supernetcore-lynx).
 // Parity rule: every change to the public surface of G9SignalRSuperNetCore.Client must be made here in the same
 // change, and vice versa. See PARITY.md for the member-by-member mapping.
 
 /** The package version (kept equal to the .NET library release it mirrors). */
-export const VERSION = '2.11.0';
+export const VERSION = '2.12.0';
 
 export {
   G9Client,

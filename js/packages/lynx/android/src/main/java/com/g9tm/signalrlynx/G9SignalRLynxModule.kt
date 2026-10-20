@@ -23,7 +23,7 @@ import java.util.concurrent.Executors
 @LynxNativeModule(name = "G9SignalRLynxModule")
 class G9SignalRLynxModule(context: LynxContext) : G9SignalRLynxModuleSpec(context) {
   companion object {
-    const val VERSION = "2.11.0"
+    const val VERSION = "2.12.0"
 
     @Volatile private var hostClient: (() -> OkHttpClient)? = null
     private val socketCore = lazy { G9SocketCore(G9SocketCore.webSocketClient(hostClient?.invoke())) }
