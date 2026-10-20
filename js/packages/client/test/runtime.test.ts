@@ -86,6 +86,14 @@ describe('connection options for runtimes without WebSocket or URL (Lynx)', () =
     expect(options._useStatefulReconnect).toBeFalsy();
   });
 
+  it('websockets-or-longpolling negotiates both and nothing else (no text-only Server-Sent Events)', () => {
+    const connection = buildHubConnection({ url: 'https://host/hub', transport: 'websockets-or-longpolling', webSocket: FakeSocket });
+    const options = (connection as unknown as { connection: { _options: Record<string, unknown> } }).connection._options;
+    expect(options.transport).toBe(HttpTransportType.WebSockets | HttpTransportType.LongPolling);
+    expect(options.skipNegotiation).toBeFalsy();
+    expect(() => buildHubConnection({ url: 'https://host/hub', transport: 'websockets-or-longpolling', skipNegotiation: true })).toThrow(/websockets/);
+  });
+
   it('refuses skipNegotiation without the WebSockets transport', () => {
     expect(() => new G9Client({ url: 'https://host/hub', skipNegotiation: true })).toThrow(/websockets/);
   });

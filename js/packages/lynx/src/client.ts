@@ -18,6 +18,11 @@ export type G9LynxTransportChoice =
   | 'native-websocket'
   /** The G9 native WebSocket after a negotiate request (`skipNegotiation: false`, e.g. behind Azure SignalR). */
   | 'native-websocket-negotiated'
+  /**
+   * Negotiated: the G9 native WebSocket when the server offers WebSockets and it opens, else HTTP long polling over
+   * Lynx's `fetch` (`longPollingFallback: true`).
+   */
+  | 'native-websocket-or-long-polling'
   /** The runtime's own WebSocket (Lynx for Web, a browser). */
   | 'platform'
   /** No WebSocket at all: HTTP long polling over Lynx's `fetch`. */
@@ -29,6 +34,13 @@ export interface G9LynxClientOptions extends G9ClientOptions {
   native?: G9SignalRNative | null;
   /** Reports which way the connection goes (for diagnostics). */
   onTransportChosen?: (choice: G9LynxTransportChoice) => void;
+  /**
+   * With the native module: negotiate, and fall back to HTTP long polling over `fetch` when the server does not offer
+   * WebSockets or the WebSocket cannot be opened (a server whose host lacks WebSockets — IIS without the WebSocket
+   * feature — or a proxy that refuses the upgrade). Costs the negotiate round trip on every connect. Default `false`
+   * (WebSockets straight, no negotiation). Ignored with an explicit `transport` or `skipNegotiation: true`.
+   */
+  longPollingFallback?: boolean;
 }
 
 /** An HttpClient for connections that never make an HTTP request (WebSockets without negotiation, no `fetch`). */
@@ -60,7 +72,7 @@ class NoHttpClient {
  * `headers` are also sent with the WebSocket upgrade, which a browser cannot do.
  */
 export function lynxClientOptions(options: G9LynxClientOptions): G9ClientOptions {
-  const { native: requested, onTransportChosen, ...rest } = options;
+  const { native: requested, onTransportChosen, longPollingFallback, ...rest } = options;
   const native = requested === null ? null : (requested ?? getG9SignalRNative());
   const g = globalThis as Record<string, unknown>;
   const out: G9ClientOptions = { ...rest };
@@ -68,8 +80,13 @@ export function lynxClientOptions(options: G9LynxClientOptions): G9ClientOptions
 
   if (native && out.webSocket === undefined) {
     out.webSocket = createLynxWebSocket({ headers: rest.headers, native });
-    out.transport = 'websockets';
-    if (rest.skipNegotiation === false) {
+    const fallback = longPollingFallback === true && rest.transport === undefined && rest.skipNegotiation !== true;
+    out.transport = fallback ? 'websockets-or-longpolling' : 'websockets';
+    if (fallback) {
+      installUrlShim();
+      out.skipNegotiation = false;
+      choice = 'native-websocket-or-long-polling';
+    } else if (rest.skipNegotiation === false) {
       installUrlShim();
       choice = 'native-websocket-negotiated';
     } else {

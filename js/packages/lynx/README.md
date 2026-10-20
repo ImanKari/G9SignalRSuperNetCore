@@ -9,7 +9,7 @@ this package supplies it:
 | --- | --- | --- |
 | a WebSocket (release builds have none; the devtool's `LynxWebSocketModule` is debug-only and text-only) | `G9LynxWebSocket` over the native module — **text and binary** frames, so MessagePack works | Android (OkHttp 4.12), iOS (`NSURLSessionWebSocketTask`), Windows/macOS (Lynxtron: Node's WebSocket), Web (the browser's) |
 | file access | `lynxFileSystem()` — `G9FileUploader.uploadFile` / `G9FileDownloader.downloadToFile` exactly like .NET (same upload id, `.partial` resume) | Android, iOS, Lynxtron |
-| `URL` / `URLSearchParams` (SignalR's negotiate step needs them) | `installUrlShim()` (installed for you when negotiation is used) | all |
+| `URL` / `URLSearchParams` (SignalR's negotiate step needs them) | `installUrlShim()` (installed for you when negotiation is used; it also REPLACES a runtime `URL` that cannot do negotiate's work — Android Lynx 4.1 has one without a usable `pathname` — and installs the two as a pair) | all |
 | sensible defaults | `createLynxClient()`, `lynxAuthorize()`, `lynxClientOptions()` | all |
 
 ## Install
@@ -60,6 +60,7 @@ const client = createLynxClient({
   protocol: new MessagePackHubProtocol(),
   accessTokenFactory: () => auth.jwToken!,
   onTransportChosen: (choice) => log('transport', choice),
+  longPollingFallback: true, // optional: long polling when the server has no WebSockets
 });
 client.onState((s) => banner.show(s.phase));
 await client.start();
@@ -72,6 +73,7 @@ the transport:
 | --- | --- | --- |
 | the native module is there (Android, iOS, Lynxtron) | `native-websocket` | `G9LynxWebSocket`, `transport: 'websockets'`, `skipNegotiation: true` — straight to the hub, one round trip less, no `URL` needed. The access token goes in `?access_token=` (configure the hub's JWT bearer events to read it, as for browsers); `headers` also reach the upgrade request |
 | the same, with `skipNegotiation: false` | `native-websocket-negotiated` | negotiate over Lynx's `fetch` first (needed behind Azure SignalR Service or for stateful reconnect), URL shim installed |
+| the same, with `longPollingFallback: true` | `native-websocket-or-long-polling` | negotiate over `fetch` with `WebSockets \| LongPolling`: the native WebSocket when the server offers it and it opens, else long polling over Lynx's `fetch` — for a host without WebSockets (IIS without the WebSocket feature) or a proxy that refuses the upgrade. Never Server-Sent Events (text only). Proven on Android Lynx 4.1 with MessagePack: 449,856 rows (a 32 MB pull) of a G9SyncData site over long polling |
 | no native module, a platform WebSocket (Lynx for Web) | `platform` | SignalR's normal negotiation |
 | neither | `long-polling` | long polling over `fetch` (JSON or MessagePack). Works everywhere Lynx has its HTTP service, but every server message costs a poll: link the native module for real use |
 

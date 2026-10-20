@@ -82,18 +82,51 @@ describe.each([
   ['messagepack', 'native-negotiated'],
   ['json', 'long-polling'],
   ['messagepack', 'long-polling'],
+  ['json', 'fallback'],
+  ['messagepack', 'fallback'],
+  ['json', 'fallback-no-ws'],
+  ['messagepack', 'fallback-no-ws'],
 ] as const)('the .NET sample hub from a Lynx-shaped runtime (%s, %s)', (protocol, path) => {
   it('connects, invokes, receives, streams both ways, pings and transfers files', async () => {
+    // `fallback-no-ws`: the negotiate answer offers no WebSockets — what IIS without the WebSocket feature sends.
+    const sandboxFetch: typeof fetch =
+      path === 'fallback-no-ws'
+        ? async (input, init) => {
+            const response = await fetch(input, init);
+            if (!String(input instanceof Request ? input.url : input).includes('/negotiate')) return response;
+            const body = (await response.json()) as { availableTransports?: Array<{ transport: string }> };
+            body.availableTransports = (body.availableTransports ?? []).filter((t) => t.transport !== 'WebSockets');
+            return new Response(JSON.stringify(body), { status: response.status, headers: { 'content-type': 'application/json' } });
+          }
+        : fetch;
+    const bridge = callbackModuleOf(createG9SignalRBridge());
+    let socketsOpened = 0;
+    const wsOpen = bridge.wsOpen!;
+    bridge.wsOpen = (...args: unknown[]) => {
+      socketsOpened++;
+      wsOpen(...args);
+    };
     const result = (await runInLynxSandbox({
       code,
-      fetch,
+      fetch: sandboxFetch,
       host: { url: `${baseUrl}/chat`, dir, protocol, path },
       // The long-polling case keeps the module for FILES; only the client is told to go without it (native: null).
-      nativeModules: { G9SignalRLynxModule: callbackModuleOf(createG9SignalRBridge()) },
+      nativeModules: { G9SignalRLynxModule: bridge },
       timeoutMs: 120_000,
     })) as Record<string, any>;
 
-    expect(result.choice).toBe(path === 'native' ? 'native-websocket' : path === 'native-negotiated' ? 'native-websocket-negotiated' : 'long-polling');
+    expect(result.choice).toBe(
+      path === 'native'
+        ? 'native-websocket'
+        : path === 'native-negotiated'
+          ? 'native-websocket-negotiated'
+          : path === 'long-polling'
+            ? 'long-polling'
+            : 'native-websocket-or-long-polling',
+    );
+    // The fallback takes the WebSocket when the server offers it, and never opens one when it does not.
+    if (path === 'fallback') expect(socketsOpened).toBeGreaterThan(0);
+    if (path === 'fallback-no-ws' || path === 'long-polling') expect(socketsOpened).toBe(0);
     expect(result.recent).toBe(4);
     expect(result.received).toContain(`lynx:hello over ${path}`);
     expect(result.ticks).toHaveLength(5);

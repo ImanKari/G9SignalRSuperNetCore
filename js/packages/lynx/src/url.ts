@@ -68,6 +68,11 @@ export class G9UrlSearchParams {
     for (const [k, v] of this._pairs) callback(v, k);
   }
 
+  /** The pairs, so a runtime `URLSearchParams` built from this one (`new URLSearchParams(url.searchParams)`) copies them. */
+  [Symbol.iterator](): IterableIterator<[string, string]> {
+    return this._pairs.map(([k, v]) => [k, v] as [string, string])[Symbol.iterator]();
+  }
+
   toString(): string {
     return this._pairs.map(([k, v]) => `${encode(k)}=${encode(v)}`).join('&');
   }
@@ -140,20 +145,54 @@ export class G9Url {
   }
 }
 
+/** Whether [U] does what SignalR's negotiate needs of `URL`: parse, read and write `pathname` / `search`, serialize. */
+function urlIsUsable(U: unknown): boolean {
+  if (typeof U !== 'function') return false;
+  try {
+    const u = new (U as new (url: string) => { pathname: string; search: string; searchParams?: { has?: unknown }; toString(): string })(
+      'https://h:1/a/b?x=1',
+    );
+    if (u.pathname !== '/a/b' || u.search !== '?x=1' || typeof u.searchParams?.has !== 'function') return false;
+    u.pathname += '/negotiate';
+    u.search = 'y=2';
+    return u.toString() === 'https://h:1/a/b/negotiate?y=2';
+  } catch {
+    return false;
+  }
+}
+
+/** Whether [P] does what SignalR's negotiate needs of `URLSearchParams`. */
+function searchParamsAreUsable(P: unknown): boolean {
+  if (typeof P !== 'function') return false;
+  try {
+    const p = new (P as new (init: string) => { has(n: string): boolean; get(n: string): string | null; append(n: string, v: string): void; toString(): string })(
+      'a=1&b=2',
+    );
+    p.append('c', '3');
+    return p.has('a') && p.get('b') === '2' && p.toString() === 'a=1&b=2&c=3';
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Installs {@link G9Url}/{@link G9UrlSearchParams} as the globals `URL`/`URLSearchParams` when the runtime has none
- * (Lynx), so SignalR's negotiate works. Leaves existing implementations alone. Returns whether it installed them.
+ * Installs {@link G9Url}/{@link G9UrlSearchParams} as the globals `URL`/`URLSearchParams` when the runtime has none OR
+ * one that cannot do what SignalR's negotiate needs, so negotiation works. ⛔ Android Lynx 4.1's background thread HAS a
+ * global `URL` — without a usable `pathname` — and negotiate died with "cannot read property 'endsWith' of undefined"
+ * (found on the emulator 2026-10-20; only a presence check was made before). A complete implementation (a browser, Node)
+ * is left alone. Returns whether it installed anything.
  */
 export function installUrlShim(): boolean {
   const g = globalThis as Record<string, unknown>;
-  let installed = false;
-  if (typeof g.URL !== 'function') {
+  // The two go together: SignalR builds `new URLSearchParams(url.searchParams)`, so a shim URL keeps the shim's params.
+  if (!urlIsUsable(g.URL)) {
     g.URL = G9Url;
-    installed = true;
-  }
-  if (typeof g.URLSearchParams !== 'function') {
     g.URLSearchParams = G9UrlSearchParams;
-    installed = true;
+    return true;
   }
-  return installed;
+  if (!searchParamsAreUsable(g.URLSearchParams)) {
+    g.URLSearchParams = G9UrlSearchParams;
+    return true;
+  }
+  return false;
 }

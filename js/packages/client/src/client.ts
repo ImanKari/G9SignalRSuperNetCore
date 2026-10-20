@@ -17,8 +17,13 @@ import { lifecycleOf } from './internal/lifecycle.js';
 import { toRetryPolicy, type G9ReconnectPolicy, type G9ReconnectPolicyOptions } from './reconnectPolicy.js';
 import { waitUntilConnected as waitForConnection } from './waitUntilConnected.js';
 
-/** Transport selection. `'auto'` (default) lets SignalR negotiate WebSockets → Server-Sent Events → Long Polling. */
-export type G9Transport = 'auto' | 'websockets' | 'sse' | 'longpolling';
+/**
+ * Transport selection. `'auto'` (default) lets SignalR negotiate WebSockets → Server-Sent Events → Long Polling;
+ * `'websockets-or-longpolling'` negotiates WebSockets and falls back to Long Polling when the server does not offer
+ * WebSockets (IIS without the WebSocket feature) or the WebSocket cannot be opened — never Server-Sent Events, which is
+ * text-only and cannot carry MessagePack.
+ */
+export type G9Transport = 'auto' | 'websockets' | 'sse' | 'longpolling' | 'websockets-or-longpolling';
 
 /** SignalR client log level. */
 export type G9LogLevel = 'none' | 'error' | 'warning' | 'information' | 'debug' | 'trace';
@@ -168,6 +173,8 @@ function toTransport(transport: G9Transport | undefined): HttpTransportType | un
       return HttpTransportType.ServerSentEvents;
     case 'longpolling':
       return HttpTransportType.LongPolling;
+    case 'websockets-or-longpolling':
+      return HttpTransportType.WebSockets | HttpTransportType.LongPolling;
     case undefined:
     case 'auto':
       return undefined;

@@ -171,6 +171,23 @@ describe('lynxClientOptions', () => {
     expect(options.skipNegotiation).toBe(false);
   });
 
+  it('negotiates WebSockets with a long-polling fallback when asked (URL shim installed)', () => {
+    let choice: G9LynxTransportChoice | undefined;
+    const options = lynxClientOptions({ url, native: native(), longPollingFallback: true, onTransportChosen: (c) => (choice = c) });
+    expect(choice).toBe('native-websocket-or-long-polling');
+    expect(options.transport).toBe('websockets-or-longpolling');
+    expect(options.skipNegotiation).toBe(false);
+    expect(options.webSocket).toBeDefined();
+    expect(typeof (globalThis as { URL?: unknown }).URL).toBe('function');
+  });
+
+  it('an explicit transport or skipNegotiation wins over longPollingFallback', () => {
+    expect(lynxClientOptions({ url, native: native(), longPollingFallback: true, transport: 'websockets' }).transport).toBe('websockets');
+    const skipped = lynxClientOptions({ url, native: native(), longPollingFallback: true, skipNegotiation: true });
+    expect(skipped.transport).toBe('websockets');
+    expect(skipped.skipNegotiation).toBe(true);
+  });
+
   it("falls back to the platform's WebSocket without the native module", () => {
     let choice: G9LynxTransportChoice | undefined;
     const options = lynxClientOptions({ url, native: null, onTransportChosen: (c) => (choice = c) });

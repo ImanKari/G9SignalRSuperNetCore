@@ -15,7 +15,8 @@ interface Host {
   url: string;
   dir: string;
   protocol: 'json' | 'messagepack';
-  path: 'native' | 'native-negotiated' | 'long-polling';
+  /** `fallback`: longPollingFallback with a server offering WebSockets; `fallback-no-ws`: the same, the negotiate offering none. */
+  path: 'native' | 'native-negotiated' | 'long-polling' | 'fallback' | 'fallback-no-ws';
 }
 
 function same(a: Uint8Array, b: Uint8Array): boolean {
@@ -31,6 +32,7 @@ export default async function run(host: Host): Promise<Record<string, unknown>> 
     protocol: host.protocol === 'messagepack' ? new MessagePackHubProtocol() : undefined,
     native: host.path === 'long-polling' ? null : undefined,
     skipNegotiation: host.path === 'native-negotiated' ? false : undefined,
+    longPollingFallback: host.path === 'fallback' || host.path === 'fallback-no-ws',
     onTransportChosen: (c) => (choice = c),
   });
   const received: string[] = [];
